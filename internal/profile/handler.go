@@ -2,6 +2,8 @@ package profile
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -12,13 +14,6 @@ import (
 
 type Service struct {
 	DB *sql.DB
-}
-type getData struct {
-	Id          int64     `json:"id"`
-	Username    string    `json:"username"`
-	PhoneNumber string    `json:"phone_number"`
-	ProfilePic  string    `json:"profile_pic"`
-	CreatedAt   time.Time `json:"created_at"`
 }
 type UpdateReq struct {
 	Username       string `json:"username"`
@@ -33,19 +28,37 @@ func Register(rg *gin.RouterGroup, db *sql.DB) {
 }
 
 func (s Service) getMe(c *gin.Context) {
-	uid := auth.MustUserId(c)
-	var data getData
-	row := s.DB.QueryRow(`SELECT id, username, phone_number, profile_picture, created_at FROM users WHERE id=?`, uid)
-	if err := row.Scan(&data); err != nil {
-		httpx.Err(c, http.StatusNotFound, "User Not found")
+	uid := auth.MustUserID(c)
+
+	if uid == 0 {
+		httpx.Err(c, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	httpx.OK(c, gin.H{
-		"user_id":     data.Id,
-		"username":    data.Username,
-		"phone":       data.PhoneNumber,
-		"profile_pic": data.ProfilePic,
-		"created_at":  data.CreatedAt,
-	})
 
+	row := s.DB.QueryRow( //bug here at profile pic
+		`SELECT id, username, phone_number, COALESCE(profile_pic, '') AS profile_pic, created_at 
+		FROM users WHERE id=?`, uid,
+	)
+
+	var id int64
+	var username, phone, pic string
+	var created time.Time
+
+	if err := row.Scan(&id, &username, &phone, &pic, &created); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpx.Err(c, http.StatusNotFound, "user not found")
+		} else {
+			fmt.Printf("[getMe] DB error: %v\n", err)
+			httpx.Err(c, http.StatusInternalServerError, "database error")
+		}
+		return
+	}
+
+	httpx.OK(c, gin.H{
+		"id":              id,
+		"username":        username,
+		"phone_number":    phone,
+		"profile_picture": pic,
+		"created_at":      created,
+	})
 }
