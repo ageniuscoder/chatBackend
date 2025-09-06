@@ -70,6 +70,7 @@ func RegisterPublic(rg *gin.RouterGroup, db *sql.DB, cfg config.Config) {
 	rg.POST("/login", s.login)
 	rg.POST("/forgot/initiate", s.forgotInitiate)
 	rg.POST("/forgot/verify", s.forgotVerify)
+	rg.PUT("/forgot/reset", s.resetPassword)
 }
 
 func (s Service) signupInitiate(c *gin.Context) {
@@ -195,4 +196,23 @@ func (s Service) forgotVerify(c *gin.Context) {
 	}
 
 	httpx.OK(c, gin.H{"message": "otp verified"})
+}
+
+func (s Service) resetPassword(c *gin.Context) {
+	var req resetReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		if validationErrors, ok := err.(validator.ValidationErrors); ok {
+			httpx.Err(c, http.StatusBadRequest, utils.ValidationErr(validationErrors))
+			return
+		}
+		httpx.Err(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	hash, _ := auth.HashPassword(req.NewPassword)
+	_, err := s.DB.Exec(`UPDATE users SET password_hash=? WHERE phone_number=?`, hash, req.Phone)
+	if err != nil {
+		httpx.Err(c, http.StatusInternalServerError, "Update Password Failed")
+		return
+	}
+	httpx.OK(c, gin.H{"message": "password updated"})
 }
