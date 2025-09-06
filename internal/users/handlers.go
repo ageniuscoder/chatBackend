@@ -179,5 +179,20 @@ func (s Service) forgotInitiate(c *gin.Context) {
 }
 
 func (s Service) forgotVerify(c *gin.Context) {
+	var req forgotVerifyReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		if validationErrors, ok := err.(validator.ValidationErrors); ok {
+			httpx.Err(c, http.StatusBadRequest, utils.ValidationErr(validationErrors))
+			return
+		}
+		httpx.Err(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	ok, err := s.OTP.Verify(req.Phone, "reset", req.OTP)
+	if err != nil || !ok {
+		httpx.Err(c, http.StatusUnauthorized, "Invalid Otp")
+		return
+	}
 
+	httpx.OK(c, gin.H{"message": "otp verified"})
 }
