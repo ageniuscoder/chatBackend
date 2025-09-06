@@ -12,7 +12,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ageniuscoder/mmchat/backend/internal/auth"
 	"github.com/ageniuscoder/mmchat/backend/internal/config"
+	"github.com/ageniuscoder/mmchat/backend/internal/profile"
 	"github.com/ageniuscoder/mmchat/backend/internal/storage/sqlite"
 	"github.com/ageniuscoder/mmchat/backend/internal/users"
 	"github.com/gin-gonic/gin"
@@ -53,6 +55,10 @@ func main() {
 	users.RegisterPublic(api, conn.Db, cfg)
 
 	//protected routes
+	authMidl := auth.JWTMiddleware(cfg.JWTSecret)
+	priv := api.Group("")
+	priv.Use(authMidl)
+	profile.Register(priv, conn.Db)
 
 	srv := &http.Server{Addr: cfg.Addr, Handler: r}
 	go func() {
