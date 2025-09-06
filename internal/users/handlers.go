@@ -68,6 +68,8 @@ func RegisterPublic(rg *gin.RouterGroup, db *sql.DB, cfg config.Config) {
 	rg.POST("/signup/initiate", s.signupInitiate)
 	rg.POST("/signup/verify", s.signupVerify)
 	rg.POST("/login", s.login)
+	rg.POST("/forgot/initiate", s.forgotInitiate)
+	rg.POST("/forgot/verify", s.forgotVerify)
 }
 
 func (s Service) signupInitiate(c *gin.Context) {
@@ -157,4 +159,25 @@ func (s Service) login(c *gin.Context) {
 	}
 	tok, _ := auth.NewToken(s.JWTSecret, id, s.JWTTTLMin)
 	httpx.OK(c, gin.H{"token": tok, "user_id": id})
+}
+
+func (s Service) forgotInitiate(c *gin.Context) {
+	var req forgotInitReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		if validationErrors, ok := err.(validator.ValidationErrors); ok {
+			httpx.Err(c, http.StatusBadRequest, utils.ValidationErr(validationErrors))
+			return
+		}
+		httpx.Err(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	if _, err := s.OTP.Genrate(req.Phone, "reset"); err != nil {
+		httpx.Err(c, http.StatusInternalServerError, "Otp Sent Failed")
+		return
+	}
+	httpx.OK(c, gin.H{"message": "otp sent"})
+}
+
+func (s Service) forgotVerify(c *gin.Context) {
+
 }
