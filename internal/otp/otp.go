@@ -36,15 +36,18 @@ func (s *Service) Genrate(phone, purpose string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	expiresAt := time.Now().UTC().Add(s.TTL)
+
 	_, err = s.DB.Exec(
-		`INSERT INTO otp_codes (phone_number, code, purpose, expires_at) VALUES (?, ?, ?, ?)`,
-		phone, code, purpose, time.Now().Add(s.TTL),
+		`INSERT INTO otp_codes (phone_number, code, purpose, expires_at)
+         VALUES (?, ?, ?, ?)`,
+		phone, code, purpose, expiresAt,
 	)
 	if err != nil {
 		return "", err
 	}
 
-	//stub sender (means send otp to email of sms service)
 	fmt.Printf("[OTP] %s for %s: %s\n", purpose, phone, code)
 
 	return code, nil
