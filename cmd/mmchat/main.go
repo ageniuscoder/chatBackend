@@ -8,6 +8,7 @@ import (
 
 	"github.com/ageniuscoder/mmchat/backend/internal/config"
 	"github.com/ageniuscoder/mmchat/backend/internal/storage/sqlite"
+	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
@@ -28,7 +29,7 @@ func main() {
 		log.Fatalf("Error loading to database: %v", err)
 	}
 	defer conn.Db.Close()
-
+	//migration for creating table in database
 	if *migrate {
 		if err := conn.Migrate(); err != nil {
 			log.Fatalf("Migration failed %v", err)
@@ -36,4 +37,8 @@ func main() {
 		slog.Info("Migration Completed")
 		return
 	}
+	//http server connection
+	r := gin.Default()
+
+	api := r.Group("/api")
 }
