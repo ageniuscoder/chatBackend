@@ -49,7 +49,10 @@ func main() {
 
 	api := r.Group("/api")
 
+	//public routes
 	users.RegisterPublic(api, conn.Db, cfg)
+
+	//protected routes
 
 	srv := &http.Server{Addr: cfg.Addr, Handler: r}
 	go func() {
@@ -61,7 +64,7 @@ func main() {
 
 	// graceful shutdown
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
