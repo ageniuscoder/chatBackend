@@ -67,6 +67,7 @@ func RegisterPublic(rg *gin.RouterGroup, db *sql.DB, cfg config.Config) {
 
 	rg.POST("/signup/initiate", s.signupInitiate)
 	rg.POST("/signup/verify", s.signupVerify)
+	rg.POST("/login", s.login)
 }
 
 func (s Service) signupInitiate(c *gin.Context) {
@@ -124,8 +125,36 @@ func (s Service) signupVerify(c *gin.Context) {
 	tok, err := auth.NewToken(s.JWTSecret, uid, s.JWTTTLMin)
 	if err != nil {
 		httpx.Err(c, http.StatusInternalServerError, "Token Genration Failed")
+		return
 	}
 
 	httpx.OK(c, gin.H{"token": tok, "user_id": uid})
+}
 
+func (s Service) login(c *gin.Context) {
+	var req loginReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		if validationErrors, ok := err.(validator.ValidationErrors); ok {
+			httpx.Err(c, http.StatusBadRequest, utils.ValidationErr(validationErrors))
+			return
+		}
+		httpx.Err(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	row := s.DB.QueryRow(`SELECT id, password_hash FROM users WHERE username=?`, req.Username)
+
+	var id int64
+	var hash string
+	if err := row.Scan(&id, &hash); err != nil {
+		httpx.Err(c, http.StatusUnauthorized, "Invalid Credentials")
+		return
+	}
+
+	if err := auth.CheckPassword(hash, req.Password); err != nil {
+		httpx.Err(c, http.StatusUnauthorized, "Invalid Credentials")
+		return
+	}
+	tok, _ := auth.NewToken(s.JWTSecret, id, s.JWTTTLMin)
+	httpx.OK(c, gin.H{"token": tok, "user_id": id})
 }
