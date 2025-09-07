@@ -22,12 +22,18 @@ type sendReq struct {
 	Content        string `json:"content"`
 }
 
+type pageReq struct {
+	Limit  int `form:"limit"`
+	Offset int `form:"offset"`
+}
+
 func Register(rg *gin.RouterGroup, db *sql.DB, hub *chat.Hub) {
 	s := Service{
 		DB:  db,
 		Hub: hub,
 	}
 	rg.POST("/messages", s.send)
+	rg.GET("/conversations/:id/messages", s.list)
 }
 
 func (s Service) send(c *gin.Context) {
@@ -62,4 +68,36 @@ func (s Service) send(c *gin.Context) {
 	s.Hub.BroadcastMessage(req.ConversationID, uid, mid, req.Content)
 
 	httpx.OK(c, gin.H{"message_id": mid})
+}
+
+func (s Service) list(c *gin.Context) {
+	cid := c.Param("id")
+	var q pageReq
+	_ = c.BindQuery(&q)
+	if q.Limit <= 0 {
+		q.Limit = 50
+	}
+
+	rows, err := s.DB.Query(`SELECT id, sender_id, content, sent_at
+		FROM messages WHERE conversation_id=? ORDER BY sent_at DESC LIMIT ? OFFSET ?`, cid, q.Limit, q.Offset)
+	if err != nil {
+		httpx.Err(c, 500, "db error")
+		return
+	}
+	defer rows.Close()
+
+	var list []gin.H
+	for rows.Next() {
+		var id, sid int64
+		var content, at string
+		_ = rows.Scan(&id, &sid, &content, &at)
+		// get sender username for convenience
+		var uname string
+		_ = s.DB.QueryRow(`SELECT username FROM users WHERE id=?`, sid).Scan(&uname)
+		list = append(list, gin.H{
+			"id": id, "sender_id": sid, "sender_username": uname,
+			"content": content, "sent_at": at,
+		})
+	}
+	httpx.OK(c, gin.H{"messages": list})
 }
