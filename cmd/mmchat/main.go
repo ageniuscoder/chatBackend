@@ -15,6 +15,7 @@ import (
 	"github.com/ageniuscoder/mmchat/backend/internal/auth"
 	"github.com/ageniuscoder/mmchat/backend/internal/chat"
 	"github.com/ageniuscoder/mmchat/backend/internal/config"
+	"github.com/ageniuscoder/mmchat/backend/internal/conversations"
 	"github.com/ageniuscoder/mmchat/backend/internal/profile"
 	"github.com/ageniuscoder/mmchat/backend/internal/storage/sqlite"
 	"github.com/ageniuscoder/mmchat/backend/internal/users"
@@ -64,6 +65,7 @@ func main() {
 	priv := api.Group("")
 	priv.Use(authMidl)
 	profile.Register(priv, conn.Db)
+	conversations.Register(priv, conn.Db)
 	chat.RegisterWS(priv, hub, cfg.JWTSecret)
 
 	/////////
