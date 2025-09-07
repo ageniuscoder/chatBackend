@@ -27,6 +27,10 @@ type pageReq struct {
 	Offset int `form:"offset"`
 }
 
+type readReq struct {
+	MessageID int64 `json:"message_id"`
+}
+
 func Register(rg *gin.RouterGroup, db *sql.DB, hub *chat.Hub) {
 	s := Service{
 		DB:  db,
@@ -34,6 +38,7 @@ func Register(rg *gin.RouterGroup, db *sql.DB, hub *chat.Hub) {
 	}
 	rg.POST("/messages", s.send)
 	rg.GET("/conversations/:id/messages", s.list)
+	rg.POST("/messages/read", s.markRead)
 }
 
 func (s Service) send(c *gin.Context) {
@@ -100,4 +105,31 @@ func (s Service) list(c *gin.Context) {
 		})
 	}
 	httpx.OK(c, gin.H{"messages": list})
+}
+
+func (s Service) markRead(c *gin.Context) {
+	uid := auth.MustUserID(c)
+	var req readReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		if validationErrors, ok := err.(validator.ValidationErrors); ok {
+			httpx.Err(c, http.StatusBadRequest, utils.ValidationErr(validationErrors))
+			return
+		}
+		httpx.Err(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Update message_status
+	_, err := s.DB.Exec(`INSERT INTO message_status (message_id, user_id, status, read_at)
+		VALUES (?, ?, 'read', CURRENT_TIMESTAMP)
+		ON CONFLICT(message_id, user_id) DO UPDATE SET status='read', read_at=CURRENT_TIMESTAMP`,
+		req.MessageID, uid)
+	if err != nil {
+		httpx.Err(c, 400, "db error")
+		return
+	}
+
+	// Notify other participants via hub
+	s.Hub.BroadcastReadReceipt(req.MessageID, uid)
+	httpx.OK(c, gin.H{"message": "marked as read"})
 }

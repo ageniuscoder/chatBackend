@@ -123,3 +123,35 @@ func (h *Hub) BroadcastMessage(conversationID, senderID, messageID int64, conten
 		log.Printf("[hub] row iteration error: %v", err)
 	}
 }
+
+// New helper: notify participants when someone reads a message
+func (h *Hub) BroadcastReadReceipt(messageID, readerID int64) {
+	var convID int64
+	_ = h.DB.QueryRow(`SELECT conversation_id FROM messages WHERE id=?`, messageID).Scan(&convID)
+
+	// Prepare payload
+	wire := WireMessage{
+		Type:           "read_receipt",
+		ConversationID: convID,
+		MessageID:      messageID,
+		SenderID:       readerID,
+	}
+	payload, _ := json.Marshal(wire)
+
+	rows, _ := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=?`, convID)
+	defer rows.Close()
+	for rows.Next() {
+		var uid int64
+		_ = rows.Scan(&uid)
+		if set, ok := h.clients[uid]; ok {
+			for cli := range set {
+				select {
+				case cli.Send <- payload:
+				default:
+					close(cli.Send)
+					delete(set, cli)
+				}
+			}
+		}
+	}
+}
