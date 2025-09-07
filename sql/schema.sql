@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users(
     password_hash TEXT NOT NULL,
     profile_pic TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- OTP CODES
@@ -76,3 +77,4 @@ CREATE INDEX IF NOT EXISTS idx_message_status_message
 
 CREATE INDEX IF NOT EXISTS idx_conversations_is_group
     ON conversations(is_group_chat);
+
