@@ -60,6 +60,7 @@ func main() {
 	priv.Use(authMidl)
 	profile.Register(priv, conn.Db)
 
+	/////////
 	srv := &http.Server{Addr: cfg.Addr, Handler: r}
 	go func() {
 		log.Printf("listening on %s", cfg.Addr)

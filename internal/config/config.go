@@ -1,7 +1,6 @@
 package config
 
 import (
-	"log"
 	"os"
 	"strconv"
 )
@@ -36,6 +35,5 @@ func MustLoad() Config {
 		OTPDigits: otpdigit,
 		OTPTTLSec: otpttl,
 	}
-	log.Printf("config Loaded %+v", cfg)
 	return cfg
 }
