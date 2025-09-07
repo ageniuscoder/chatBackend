@@ -97,7 +97,7 @@ func (s *Service) createOrGetPrivate(c *gin.Context) {
 	httpx.OK(c, gin.H{"conversation_id": id, "is_group": false})
 }
 
-func (s Service) createGroup(c *gin.Context) {
+func (s *Service) createGroup(c *gin.Context) {
 	uid := auth.MustUserID(c)
 	var req groupReq
 
@@ -110,21 +110,65 @@ func (s Service) createGroup(c *gin.Context) {
 		return
 	}
 
-	res, err := s.DB.Exec(`INSERT INTO conversations (name, is_group_chat) VALUES (?, 1)`, req.Name)
+	// start transaction
+	tx, err := s.DB.Begin()
+	if err != nil {
+		httpx.Err(c, 500, "db transaction failed")
+		return
+	}
+	defer tx.Rollback()
+
+	// create conversation
+	res, err := tx.Exec(`INSERT INTO conversations (name, is_group_chat) VALUES (?, 1)`, req.Name)
 	if err != nil {
 		httpx.Err(c, 400, "create group failed")
 		return
 	}
-
 	cid, _ := res.LastInsertId()
 
-	_, _ = s.DB.Exec(`INSERT INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 1)`, cid, uid)
+	// insert creator as admin
+	_, err = tx.Exec(`INSERT INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 1)`, cid, uid)
+	if err != nil {
+		httpx.Err(c, 400, "add creator failed")
+		return
+	}
 
+	validMembers := 0
+
+	// add other members if they exist
 	for _, mid := range req.MemberIDs {
 		if mid == uid {
 			continue
 		}
-		_, _ = s.DB.Exec(`INSERT OR IGNORE INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 0)`, cid, mid)
+
+		var exists bool
+		err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id=?)", mid).Scan(&exists)
+		if err != nil {
+			httpx.Err(c, 500, "db error")
+			return
+		}
+		if !exists {
+			continue // skip invalid user
+		}
+
+		_, err = tx.Exec(`INSERT INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 0)`, cid, mid)
+		if err != nil {
+			httpx.Err(c, 400, "add member failed")
+			return
+		}
+		validMembers++
+	}
+
+	// if no valid members (except creator), rollback
+	if validMembers == 0 {
+		httpx.Err(c, 400, "no valid members found, group not created")
+		return
+	}
+
+	// commit if everything is fine
+	if err := tx.Commit(); err != nil {
+		httpx.Err(c, 500, "commit failed")
+		return
 	}
 
 	httpx.OK(c, gin.H{"conversation_id": cid, "is_group": true})
