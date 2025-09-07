@@ -3,6 +3,8 @@ package chat
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
+	"time"
 )
 
 type Hub struct {
@@ -48,19 +50,29 @@ func (h *Hub) Run() {
 
 // BroadcastMessage sends a JSON payload to all participants of a conversation.
 func (h *Hub) BroadcastMessage(conversationID, senderID, messageID int64, content string) {
-	//Fetch Participants UserIds
+	// Fetch all participants (single query)
 	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=?`, conversationID)
 	if err != nil {
+		log.Printf("[hub] failed to fetch participants for conversation %d: %v", conversationID, err)
 		return
 	}
 	defer rows.Close()
 
-	// Fetch sender username and timestamp
+	// Fetch sender username
 	var senderUsername string
-	_ = h.DB.QueryRow(`SELECT username FROM users WHERE id=?`, senderID).Scan(&senderUsername)
-	var sentAt string
-	_ = h.DB.QueryRow(`SELECT sent_at FROM messages WHERE id=?`, messageID).Scan(&sentAt)
+	if err := h.DB.QueryRow(`SELECT username FROM users WHERE id=?`, senderID).Scan(&senderUsername); err != nil {
+		log.Printf("[hub] failed to fetch sender username for %d: %v", senderID, err)
+		senderUsername = "unknown"
+	}
 
+	// Fetch sent_at timestamp
+	var sentAt string
+	if err := h.DB.QueryRow(`SELECT sent_at FROM messages WHERE id=?`, messageID).Scan(&sentAt); err != nil {
+		log.Printf("[hub] failed to fetch sent_at for message %d: %v", messageID, err)
+		sentAt = time.Now().UTC().Format(time.RFC3339)
+	}
+
+	// Prepare wire message payload
 	wire := WireMessage{
 		Type:           "message",
 		ConversationID: conversationID,
@@ -70,34 +82,44 @@ func (h *Hub) BroadcastMessage(conversationID, senderID, messageID int64, conten
 		Content:        content,
 		SentAt:         sentAt,
 	}
+	payload, err := json.Marshal(wire)
+	if err != nil {
+		log.Printf("[hub] failed to marshal wire message: %v", err)
+		return
+	}
 
-	payload, _ := json.Marshal(wire)
-
+	// Iterate participants & broadcast
 	for rows.Next() {
 		var uid int64
-		_ = rows.Scan(&uid)
+		if err := rows.Scan(&uid); err != nil {
+			log.Printf("[hub] failed to scan participant user_id: %v", err)
+			continue
+		}
+
+		// Mark delivered for everyone except sender
+		if uid != senderID {
+			if _, err := h.DB.Exec(
+				`INSERT OR IGNORE INTO message_status (message_id, user_id, status)
+				 VALUES (?, ?, 'delivered')`, messageID, uid); err != nil {
+				log.Printf("[hub] failed to insert message_status for user %d: %v", uid, err)
+			}
+		}
+
+		// Send over WebSocket if connected
 		if set, ok := h.clients[uid]; ok {
 			for client := range set {
 				select {
 				case client.Send <- payload:
 				default:
-					//slow/broken client, drop it
+					// slow/broken client → drop
 					close(client.Send)
 					delete(set, client)
+					log.Printf("[hub] dropped slow client for user %d", uid)
 				}
 			}
 		}
 	}
-
-	// Mark delivered for others (optional best-effort)   //fetches all participants excepts sender
-	rows2, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=? AND user_id<>?`, conversationID, senderID)
-	if err == nil {
-		defer rows2.Close()
-		for rows2.Next() {
-			var uid int64
-			_ = rows2.Scan(&uid)
-			_, _ = h.DB.Exec(`INSERT OR IGNORE INTO message_status (message_id, user_id, status) VALUES (?, ?, 'delivered')`, messageID, uid)
-		}
+	if err := rows.Err(); err != nil {
+		log.Printf("[hub] row iteration error: %v", err)
 	}
-
 }
