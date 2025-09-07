@@ -137,7 +137,6 @@ func (h *Hub) BroadcastReadReceipt(messageID, readerID int64) {
 	var convID int64
 	_ = h.DB.QueryRow(`SELECT conversation_id FROM messages WHERE id=?`, messageID).Scan(&convID)
 
-	// Prepare payload
 	wire := WireMessage{
 		Type:           "read_receipt",
 		ConversationID: convID,
@@ -146,8 +145,9 @@ func (h *Hub) BroadcastReadReceipt(messageID, readerID int64) {
 	}
 	payload, _ := json.Marshal(wire)
 
-	rows, _ := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=?`, convID)
+	rows, _ := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=? AND user_id<>?`, convID, readerID)
 	defer rows.Close()
+
 	for rows.Next() {
 		var uid int64
 		_ = rows.Scan(&uid)
@@ -178,6 +178,7 @@ func (h *Hub) BroadcastTyping(convID, userID int64, eventType string) {
 
 	rows, _ := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=? AND user_id<>?`, convID, userID)
 	defer rows.Close()
+
 	for rows.Next() {
 		var uid int64
 		_ = rows.Scan(&uid)
