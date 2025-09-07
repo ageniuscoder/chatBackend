@@ -59,6 +59,7 @@ func (s *Service) createOrGetPrivate(c *gin.Context) {
 		return
 	}
 
+	//not found creating new chat
 	res, err := s.DB.Exec(`INSERT INTO conversations (name, is_group_chat) VALUES (NULL, 0)`)
 	if err != nil {
 		httpx.Err(c, 400, "create failed")
