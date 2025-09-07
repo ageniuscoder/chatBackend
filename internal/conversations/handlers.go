@@ -35,6 +35,7 @@ func Register(rg *gin.RouterGroup, db *sql.DB) {
 	rg.POST("/conversations/private", s.createOrGetPrivate)
 	rg.POST("/conversations/group", s.createGroup)
 	rg.POST("/conversations/:id/participants", s.addParticipant)
+	rg.DELETE("/conversations/:id/participants/:userId", s.removeParticipant)
 }
 
 func (s *Service) createOrGetPrivate(c *gin.Context) {
@@ -135,4 +136,24 @@ func (s Service) addParticipant(c *gin.Context) {
 		return
 	}
 	httpx.OK(c, gin.H{"ok": true})
+}
+
+func (s Service) removeParticipant(c *gin.Context) {
+	uid := auth.MustUserID(c)
+	cid := c.Param("id")
+
+	//ensure uid is admin
+	var n int
+	_ = s.DB.QueryRow(`SELECT COUNT(1) FROM participants WHERE conversation_id=? AND user_id=? AND is_admin=1`, cid, uid).Scan(&n)
+	if n == 0 {
+		httpx.Err(c, http.StatusForbidden, "only admin can remove participants")
+		return
+	}
+	_, err := s.DB.Exec(`DELETE FROM participants WHERE conversation_id=? AND user_id=?`, cid, c.Param("userId"))
+	if err != nil {
+		httpx.Err(c, 400, "remove failed")
+		return
+	}
+	httpx.OK(c, gin.H{"ok": true})
+
 }
