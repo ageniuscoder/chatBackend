@@ -256,10 +256,24 @@ func (s Service) listMine(c *gin.Context) {
 			continue
 		}
 
-		// Use empty string if name is NULL (private chat case)
 		displayName := ""
-		if name.Valid {
-			displayName = name.String
+		if isg {
+			// group chat → use conversation name (safe even if NULL)
+			if name.Valid {
+				displayName = name.String
+			}
+		} else {
+			// private chat → lookup other user's name
+			var otherName string
+			err := s.DB.QueryRow(`
+				SELECT u.username
+				FROM participants p
+				JOIN users u ON u.id = p.user_id
+				WHERE p.conversation_id = ? AND p.user_id != ?
+				LIMIT 1`, id, uid).Scan(&otherName)
+			if err == nil {
+				displayName = otherName
+			}
 		}
 
 		list = append(list, gin.H{
