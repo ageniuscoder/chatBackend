@@ -2,6 +2,7 @@ package conversations
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 
 	"github.com/ageniuscoder/mmchat/backend/internal/auth"
@@ -36,6 +37,7 @@ func Register(rg *gin.RouterGroup, db *sql.DB) {
 	rg.POST("/conversations/group", s.createGroup)
 	rg.POST("/conversations/:id/participants", s.addParticipant)
 	rg.DELETE("/conversations/:id/participants/:userId", s.removeParticipant)
+	rg.GET("/conversations", s.listMine)
 }
 
 func (s *Service) createOrGetPrivate(c *gin.Context) {
@@ -156,4 +158,59 @@ func (s Service) removeParticipant(c *gin.Context) {
 		return
 	}
 	httpx.OK(c, gin.H{"ok": true})
+}
+
+func (s Service) listMine(c *gin.Context) {
+	uid := auth.MustUserID(c)
+
+	// Query all conversations where this user is a participant
+	rows, err := s.DB.Query(`
+		SELECT c.id, c.name, c.is_group_chat, c.created_at
+		FROM conversations c
+		JOIN participants p ON p.conversation_id = c.id
+		WHERE p.user_id = ?
+		ORDER BY c.created_at DESC`, uid)
+	if err != nil {
+		httpx.Err(c, http.StatusInternalServerError, "failed to fetch conversations")
+		return
+	}
+	defer rows.Close()
+
+	var list []gin.H
+
+	for rows.Next() {
+		var (
+			id   int64
+			name sql.NullString // to handle NULL safely
+			isg  bool
+			ca   string
+		)
+
+		if err := rows.Scan(&id, &name, &isg, &ca); err != nil {
+			// If a row fails to scan, log it and continue to next row
+			fmt.Printf("listMine: failed to scan row: %v\n", err)
+			continue
+		}
+
+		// Use empty string if name is NULL (private chat case)
+		displayName := ""
+		if name.Valid {
+			displayName = name.String
+		}
+
+		list = append(list, gin.H{
+			"id":         id,
+			"name":       displayName,
+			"is_group":   isg,
+			"created_at": ca,
+		})
+	}
+
+	// Check for iteration errors
+	if err := rows.Err(); err != nil {
+		httpx.Err(c, http.StatusInternalServerError, "error reading conversation list")
+		return
+	}
+
+	httpx.OK(c, gin.H{"conversations": list})
 }
