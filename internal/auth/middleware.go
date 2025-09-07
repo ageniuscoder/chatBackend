@@ -8,7 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type ctxKey string //these two lines  ensures safe storage/retrieval in context.Context.
+type ctxKey string
+
 const CtxUserID ctxKey = "uid"
 
 func JWTMiddleware(secret string) gin.HandlerFunc {
@@ -31,16 +32,25 @@ func JWTMiddleware(secret string) gin.HandlerFunc {
 	}
 }
 
-func MustUserID(c *gin.Context) int64 {
+// UserIDFromContext retrieves the user ID from the context safely.
+func UserIDFromContext(c *gin.Context) (int64, error) {
 	v, ok := c.Get(string(CtxUserID))
 	if !ok {
-		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		panic("user_id missing from context")
+		return 0, fmt.Errorf("user_id missing from context")
 	}
 	id, ok := v.(int64)
 	if !ok {
+		return 0, fmt.Errorf("user_id wrong type: %T", v)
+	}
+	return id, nil
+}
+
+// MustUserID is a convenience function that panics. Use UserIDFromContext for safer handling.
+func MustUserID(c *gin.Context) int64 {
+	id, err := UserIDFromContext(c)
+	if err != nil {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-		panic(fmt.Sprintf("user_id wrong type: %T", v))
+		panic(err)
 	}
 	return id
 }

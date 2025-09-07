@@ -227,12 +227,19 @@ func (s Service) removeParticipant(c *gin.Context) {
 func (s Service) listMine(c *gin.Context) {
 	uid := auth.MustUserID(c)
 
-	// Query all conversations where this user is a participant
 	rows, err := s.DB.Query(`
-		SELECT c.id, c.name, c.is_group_chat, c.created_at
+		SELECT
+			c.id,
+			c.name,
+			c.is_group_chat,
+			c.created_at,
+			CASE WHEN c.is_group_chat = 0 THEN other_user.username ELSE c.name END as display_name
 		FROM conversations c
-		JOIN participants p ON p.conversation_id = c.id
-		WHERE p.user_id = ?
+		JOIN participants p1 ON p1.conversation_id = c.id
+		LEFT JOIN participants p2 ON c.is_group_chat = 0 AND p2.conversation_id = c.id AND p2.user_id != p1.user_id
+		LEFT JOIN users other_user ON p2.user_id = other_user.id
+		WHERE p1.user_id = ?
+		GROUP BY c.id
 		ORDER BY c.created_at DESC`, uid)
 	if err != nil {
 		httpx.Err(c, http.StatusInternalServerError, "failed to fetch conversations")
@@ -244,47 +251,26 @@ func (s Service) listMine(c *gin.Context) {
 
 	for rows.Next() {
 		var (
-			id   int64
-			name sql.NullString // to handle NULL safely
-			isg  bool
-			ca   string
+			id          int64
+			name        sql.NullString
+			isg         bool
+			ca          string
+			displayName sql.NullString
 		)
 
-		if err := rows.Scan(&id, &name, &isg, &ca); err != nil {
-			// If a row fails to scan, log it and continue to next row
+		if err := rows.Scan(&id, &name, &isg, &ca, &displayName); err != nil {
 			fmt.Printf("listMine: failed to scan row: %v\n", err)
 			continue
 		}
 
-		displayName := ""
-		if isg {
-			// group chat → use conversation name (safe even if NULL)
-			if name.Valid {
-				displayName = name.String
-			}
-		} else {
-			// private chat → lookup other user's name
-			var otherName string
-			err := s.DB.QueryRow(`
-				SELECT u.username
-				FROM participants p
-				JOIN users u ON u.id = p.user_id
-				WHERE p.conversation_id = ? AND p.user_id != ?
-				LIMIT 1`, id, uid).Scan(&otherName)
-			if err == nil {
-				displayName = otherName
-			}
-		}
-
 		list = append(list, gin.H{
 			"id":         id,
-			"name":       displayName,
+			"name":       displayName.String,
 			"is_group":   isg,
 			"created_at": ca,
 		})
 	}
 
-	// Check for iteration errors
 	if err := rows.Err(); err != nil {
 		httpx.Err(c, http.StatusInternalServerError, "error reading conversation list")
 		return
