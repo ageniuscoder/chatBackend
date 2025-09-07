@@ -206,14 +206,27 @@ func (h *Hub) BroadcastPresence(userID int64, status string) {
 	}
 	payload, _ := json.Marshal(wire)
 
-	// Notify all connected clients (global broadcast)
-	for _, set := range h.clients {
-		for cli := range set {
-			select {
-			case cli.Send <- payload:
-			default:
-				close(cli.Send)
-				delete(set, cli)
+	//Find all conversations the user belongs to
+	rows, _ := h.DB.Query(`
+        SELECT DISTINCT p2.user_id
+        FROM participants p1
+        JOIN participants p2 ON p1.conversation_id = p2.conversation_id
+        WHERE p1.user_id = ? AND p2.user_id <> ?`,
+		userID, userID,
+	)
+	defer rows.Close()
+
+	for rows.Next() {
+		var uid int64
+		_ = rows.Scan(&uid)
+		if set, ok := h.clients[uid]; ok {
+			for cli := range set {
+				select {
+				case cli.Send <- payload:
+				default:
+					close(cli.Send)
+					delete(set, cli)
+				}
 			}
 		}
 	}
