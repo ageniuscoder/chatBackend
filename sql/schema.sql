@@ -1,5 +1,6 @@
 PRAGMA foreign_keys=ON;
 
+-- USERS TABLE
 CREATE TABLE IF NOT EXISTS users(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
@@ -9,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users(
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- OTP CODES (used for signup, reset)
 CREATE TABLE IF NOT EXISTS otp_codes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     phone_number TEXT NOT NULL,
@@ -18,22 +20,24 @@ CREATE TABLE IF NOT EXISTS otp_codes (
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- CONVERSATIONS (1-to-1 or group)
 CREATE TABLE IF NOT EXISTS conversations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
+    name TEXT, -- null for private chats
     is_group_chat BOOLEAN NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- PARTICIPANTS (membership of users in conversations)
 CREATE TABLE IF NOT EXISTS participants (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     is_admin BOOLEAN NOT NULL DEFAULT 0,
     joined_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(conversation_id, user_id)
+    PRIMARY KEY (conversation_id, user_id) -- composite PK prevents duplicates
 );
 
+-- MESSAGES (content sent by users)
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     conversation_id INTEGER NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
@@ -42,13 +46,21 @@ CREATE TABLE IF NOT EXISTS messages (
     sent_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- MESSAGE STATUS (delivery + read tracking)
 CREATE TABLE IF NOT EXISTS message_status (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
     message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     status TEXT NOT NULL CHECK(status IN ('delivered','read')),
     read_at TIMESTAMP,
-    UNIQUE(message_id, user_id)
+    PRIMARY KEY (message_id, user_id) -- ensures one row per recipient per message
 );
 
-CREATE INDEX IF NOT EXISTS idx_messages_conversation_time ON messages(conversation_id, sent_at DESC);
+-- INDEXES FOR PERFORMANCE
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_time 
+    ON messages(conversation_id, sent_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_participants_user 
+    ON participants(user_id);
+
+CREATE INDEX IF NOT EXISTS idx_message_status_user 
+    ON message_status(user_id);
