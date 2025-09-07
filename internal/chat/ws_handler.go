@@ -2,7 +2,6 @@ package chat
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/ageniuscoder/mmchat/backend/internal/auth"
 	"github.com/gin-gonic/gin"
@@ -17,29 +16,10 @@ var upgrader = websocket.Upgrader{
 }
 
 // RegisterWS mounts GET /ws for authenticated clients.
-// Auth works via:
-// 1) Header: Authorization: Bearer <JWT>
-// 2) Query:  ?token=<JWT>
 
 func RegisterWS(rg *gin.RouterGroup, hub *Hub, jwtSecret string) {
 	rg.GET("/ws", func(c *gin.Context) {
-		// Extract token
-		token := c.Query("token")
-		if token == "" {
-			h := c.GetHeader("Authorization")
-			if strings.HasPrefix(h, "Bearer ") {
-				token = strings.TrimPrefix(h, "Bearer ")
-			}
-		}
-		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
-			return
-		}
-		claims, err := auth.ParseToken(jwtSecret, token)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
-			return
-		}
+		uid := auth.MustUserID(c)
 
 		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
@@ -50,7 +30,7 @@ func RegisterWS(rg *gin.RouterGroup, hub *Hub, jwtSecret string) {
 			Hub:    hub,
 			Conn:   conn,
 			Send:   make(chan []byte, 256),
-			UserID: claims.UserId,
+			UserID: uid,
 		}
 		hub.register <- client
 
