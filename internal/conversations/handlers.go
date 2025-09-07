@@ -149,11 +149,11 @@ func (s Service) removeParticipant(c *gin.Context) {
 		httpx.Err(c, http.StatusForbidden, "only admin can remove participants")
 		return
 	}
+	//removing
 	_, err := s.DB.Exec(`DELETE FROM participants WHERE conversation_id=? AND user_id=?`, cid, c.Param("userId"))
 	if err != nil {
 		httpx.Err(c, 400, "remove failed")
 		return
 	}
 	httpx.OK(c, gin.H{"ok": true})
-
 }
