@@ -9,7 +9,9 @@ import (
 
 	"github.com/ageniuscoder/mmchat/backend/internal/auth"
 	"github.com/ageniuscoder/mmchat/backend/internal/httpx"
+	"github.com/ageniuscoder/mmchat/backend/internal/utils"
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 )
 
 type Service struct {
@@ -25,6 +27,7 @@ func Register(rg *gin.RouterGroup, db *sql.DB) {
 		DB: db,
 	}
 	rg.GET("/me", s.getMe)
+	rg.PUT("/me", s.updateMe)
 }
 
 func (s Service) getMe(c *gin.Context) {
@@ -61,4 +64,26 @@ func (s Service) getMe(c *gin.Context) {
 		"profile_picture": pic,
 		"created_at":      created,
 	})
+}
+
+func (s Service) updateMe(c *gin.Context) {
+	uid := auth.MustUserID(c)
+	var req UpdateReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		if validationErrors, ok := err.(validator.ValidationErrors); ok {
+			httpx.Err(c, http.StatusBadRequest, utils.ValidationErr(validationErrors))
+			return
+		}
+		httpx.Err(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	_, err := s.DB.Exec(
+		`UPDATE users SET username=COALESCE(?, username), profile_pic=COALESCE(?, profile_pic) WHERE id=?`,
+		req.Username, req.ProfilePicture, uid,
+	)
+	if err != nil {
+		httpx.Err(c, http.StatusInternalServerError, "Profile Update failed")
+	}
+	s.getMe(c)
 }
