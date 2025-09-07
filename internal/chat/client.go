@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -32,11 +33,20 @@ func (c *Client) readPump() {
 		return nil
 	})
 	for {
-		_, _, err := c.Conn.ReadMessage()
+		_, msg, err := c.Conn.ReadMessage()
 		if err != nil {
 			break
 		}
-		// Incoming client messages could be handled here if desired.
+		// Parse incoming event
+		var incoming struct {
+			Type           string `json:"type"`
+			ConversationID int64  `json:"conversation_id"`
+		}
+		if err := json.Unmarshal(msg, &incoming); err == nil {
+			if incoming.Type == "typing_start" || incoming.Type == "typing_stop" {
+				c.Hub.BroadcastTyping(incoming.ConversationID, c.UserID, incoming.Type)
+			}
+		}
 	}
 }
 

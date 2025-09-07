@@ -155,3 +155,33 @@ func (h *Hub) BroadcastReadReceipt(messageID, readerID int64) {
 		}
 	}
 }
+
+func (h *Hub) BroadcastTyping(convID, userID int64, eventType string) {
+	var username string
+	_ = h.DB.QueryRow(`SELECT username FROM users WHERE id=?`, userID).Scan(&username)
+
+	wire := WireMessage{
+		Type:           eventType, // "typing_start" or "typing_stop"
+		ConversationID: convID,
+		SenderID:       userID,
+		SenderUsername: username,
+	}
+	payload, _ := json.Marshal(wire)
+
+	rows, _ := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=? AND user_id<>?`, convID, userID)
+	defer rows.Close()
+	for rows.Next() {
+		var uid int64
+		_ = rows.Scan(&uid)
+		if set, ok := h.clients[uid]; ok {
+			for cli := range set {
+				select {
+				case cli.Send <- payload:
+				default:
+					close(cli.Send)
+					delete(set, cli)
+				}
+			}
+		}
+	}
+}
