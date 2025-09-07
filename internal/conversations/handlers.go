@@ -52,7 +52,7 @@ func (s *Service) createOrGetPrivate(c *gin.Context) {
 		return
 	}
 
-	// find existing
+	// find existing conversation
 	row := s.DB.QueryRow(`SELECT c.id FROM conversations c
 		JOIN participants p1 ON p1.conversation_id=c.id AND p1.user_id=?
 		JOIN participants p2 ON p2.conversation_id=c.id AND p2.user_id=?
@@ -64,17 +64,37 @@ func (s *Service) createOrGetPrivate(c *gin.Context) {
 		return
 	}
 
-	//not found creating new chat
-	res, err := s.DB.Exec(`INSERT INTO conversations (name, is_group_chat) VALUES (NULL, 0)`)
+	// start transaction
+	tx, err := s.DB.Begin()
 	if err != nil {
-		httpx.Err(c, 400, "create failed")
+		httpx.Err(c, 500, "db transaction failed")
+		return
+	}
+	defer tx.Rollback() // ensures cleanup on error
+
+	// create conversation
+	res, err := tx.Exec(`INSERT INTO conversations (name, is_group_chat) VALUES (NULL, 0)`)
+	if err != nil {
+		httpx.Err(c, 400, "create conversation failed")
 		return
 	}
 	id, _ = res.LastInsertId()
-	_, _ = s.DB.Exec(`INSERT INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 0), (?, ?, 0)`,
-		id, uid, id, req.OtherUserId)
-	httpx.OK(c, gin.H{"conversation_id": id, "is_group": false})
 
+	// add participants (this will fail if user doesn't exist because of FK)
+	_, err = tx.Exec(`INSERT INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 0), (?, ?, 0)`,
+		id, uid, id, req.OtherUserId)
+	if err != nil {
+		httpx.Err(c, 400, "invalid user id")
+		return
+	}
+
+	// commit if everything is fine
+	if err := tx.Commit(); err != nil {
+		httpx.Err(c, 500, "commit failed")
+		return
+	}
+
+	httpx.OK(c, gin.H{"conversation_id": id, "is_group": false})
 }
 
 func (s Service) createGroup(c *gin.Context) {
