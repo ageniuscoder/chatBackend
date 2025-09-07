@@ -33,6 +33,8 @@ func Register(rg *gin.RouterGroup, db *sql.DB) {
 		DB: db,
 	}
 	rg.POST("/conversations/private", s.createOrGetPrivate)
+	rg.POST("/conversations/group", s.createGroup)
+	rg.POST("/conversations/:id/participants", s.addParticipant)
 }
 
 func (s *Service) createOrGetPrivate(c *gin.Context) {
@@ -70,4 +72,67 @@ func (s *Service) createOrGetPrivate(c *gin.Context) {
 		id, uid, id, req.OtherUserId)
 	httpx.OK(c, gin.H{"conversation_id": id, "is_group": false})
 
+}
+
+func (s Service) createGroup(c *gin.Context) {
+	uid := auth.MustUserID(c)
+	var req groupReq
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		if validationErrors, ok := err.(validator.ValidationErrors); ok {
+			httpx.Err(c, http.StatusBadRequest, utils.ValidationErr(validationErrors))
+			return
+		}
+		httpx.Err(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	res, err := s.DB.Exec(`INSERT INTO conversations (name, is_group_chat) VALUES (?, 1)`, req.Name)
+	if err != nil {
+		httpx.Err(c, 400, "create group failed")
+		return
+	}
+
+	cid, _ := res.LastInsertId()
+
+	_, _ = s.DB.Exec(`INSERT INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 1)`, cid, uid)
+
+	for _, mid := range req.MemberIDs {
+		if mid == uid {
+			continue
+		}
+		_, _ = s.DB.Exec(`INSERT OR IGNORE INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 0)`, cid, mid)
+	}
+
+	httpx.OK(c, gin.H{"conversation_id": cid, "is_group": true})
+}
+
+func (s Service) addParticipant(c *gin.Context) {
+	uid := auth.MustUserID(c)
+	cid := c.Param("id")
+
+	//ensure uid is admin
+	var n int
+	_ = s.DB.QueryRow(`SELECT COUNT(1) FROM participants WHERE conversation_id=? AND user_id=? AND is_admin=1`, cid, uid).Scan(&n)
+	if n == 0 {
+		httpx.Err(c, http.StatusForbidden, "only admin can add participants")
+		return
+	}
+
+	var req addReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		if validationErrors, ok := err.(validator.ValidationErrors); ok {
+			httpx.Err(c, http.StatusBadRequest, utils.ValidationErr(validationErrors))
+			return
+		}
+		httpx.Err(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	_, err := s.DB.Exec(`INSERT OR IGNORE INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 0)`, cid, req.UserID)
+	if err != nil {
+		httpx.Err(c, 400, "add failed")
+		return
+	}
+	httpx.OK(c, gin.H{"ok": true})
 }
