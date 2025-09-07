@@ -20,15 +20,8 @@ func New(dsn string) (*Sqlite, error) {
 		return nil, err
 	}
 
-	// Single connection for SQLite
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-
 	// Enable WAL for better concurrency
 	_, _ = db.Exec(`PRAGMA journal_mode=WAL;`)
-
-	// Wait up to 5s if locked
-	_, _ = db.Exec(`PRAGMA busy_timeout = 5000;`)
 
 	return &Sqlite{
 		Db: db,
