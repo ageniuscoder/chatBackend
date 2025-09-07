@@ -28,6 +28,8 @@ func Register(rg *gin.RouterGroup, db *sql.DB) {
 	}
 	rg.GET("/me", s.getMe)
 	rg.PUT("/me", s.updateMe)
+	rg.GET("/users/:id/last-seen", s.getLastSeen)
+
 }
 
 func (s Service) getMe(c *gin.Context) {
@@ -86,4 +88,15 @@ func (s Service) updateMe(c *gin.Context) {
 		httpx.Err(c, http.StatusInternalServerError, "Profile Update failed")
 	}
 	s.getMe(c)
+}
+
+func (s Service) getLastSeen(c *gin.Context) {
+	userID := c.Param("id")
+	row := s.DB.QueryRow(`SELECT last_active FROM users WHERE id=?`, userID)
+	var lastSeen string
+	if err := row.Scan(&lastSeen); err != nil {
+		httpx.Err(c, 404, "user not found")
+		return
+	}
+	httpx.OK(c, gin.H{"last_seen": lastSeen})
 }

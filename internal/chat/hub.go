@@ -30,10 +30,15 @@ func (h *Hub) Run() {
 	for {
 		select {
 		case client := <-h.register:
+			//mark user online
+			h.DB.Exec(`UPDATE users SET last_active=CURRENT_TIMESTAMP WHERE id=?`, client.UserID)
 			if h.clients[client.UserID] == nil {
 				h.clients[client.UserID] = make(map[*Client]bool)
 			}
 			h.clients[client.UserID][client] = true
+
+			// Broadcast online presence
+			h.BroadcastPresence(client.UserID, "online")
 		case client := <-h.unregister:
 			if set, ok := h.clients[client.UserID]; ok {
 				if _, ok := set[client]; ok {
@@ -41,6 +46,9 @@ func (h *Hub) Run() {
 					close(client.Send)
 					if len(set) == 0 {
 						delete(h.clients, client.UserID)
+						// Mark last_active and broadcast offline
+						h.DB.Exec(`UPDATE users SET last_active=CURRENT_TIMESTAMP WHERE id=?`, client.UserID)
+						h.BroadcastPresence(client.UserID, "offline")
 					}
 				}
 			}
@@ -181,6 +189,31 @@ func (h *Hub) BroadcastTyping(convID, userID int64, eventType string) {
 					close(cli.Send)
 					delete(set, cli)
 				}
+			}
+		}
+	}
+}
+
+func (h *Hub) BroadcastPresence(userID int64, status string) {
+	var username string
+	_ = h.DB.QueryRow(`SELECT username FROM users WHERE id=?`, userID).Scan(&username)
+
+	wire := WireMessage{
+		Type:           "presence",
+		SenderID:       userID,
+		SenderUsername: username,
+		Content:        status, // "online" or "offline"
+	}
+	payload, _ := json.Marshal(wire)
+
+	// Notify all connected clients (global broadcast)
+	for _, set := range h.clients {
+		for cli := range set {
+			select {
+			case cli.Send <- payload:
+			default:
+				close(cli.Send)
+				delete(set, cli)
 			}
 		}
 	}
