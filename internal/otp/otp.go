@@ -8,9 +8,12 @@ import (
 	"time"
 )
 
-type Store interface { //for plugin type system for databases
+// Store is the interface for our database operations.
+// It is modified to include the Begin() method for transactions.
+type Store interface {
 	Exec(query string, args ...any) (sql.Result, error)
 	QueryRow(query string, args ...any) *sql.Row
+	Begin() (*sql.Tx, error)
 }
 
 type Service struct {
@@ -54,36 +57,42 @@ func (s *Service) Genrate(phone, purpose string) (string, error) {
 }
 
 func (s *Service) Verify(phone, purpose, code string) (bool, error) {
-	//cleanup Expired Code
-	_, _ = s.DB.Exec(
-		`DELETE FROM otp_codes WHERE expires_at <= CURRENT_TIMESTAMP`,
-	)
+	// Begin a new transaction
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return false, err
+	}
+	// Defer a rollback in case of error. It's a no-op if commit is called.
+	defer tx.Rollback()
 
-	row := s.DB.QueryRow( //count(1) provide number of rows that matches given condition
+	// Cleanup expired codes inside the transaction.
+	_, _ = tx.Exec(`DELETE FROM otp_codes WHERE expires_at <= CURRENT_TIMESTAMP`)
+
+	var n int
+	row := tx.QueryRow(
 		`SELECT COUNT(1) FROM otp_codes             
-		 WHERE phone_number=? AND purpose=? AND code=? 
-		   AND expires_at > CURRENT_TIMESTAMP`,
+         WHERE phone_number=? AND purpose=? AND code=? 
+           AND expires_at > CURRENT_TIMESTAMP`,
 		phone, purpose, code,
 	)
 
-	var n int
 	if err := row.Scan(&n); err != nil {
 		return false, err
 	}
 
 	if n == 1 {
-		//Delete OTP after successful verification
-		_, err := s.DB.Exec(
+		// Delete the OTP after successful verification.
+		_, err := tx.Exec(
 			`DELETE FROM otp_codes 
-			 WHERE phone_number=? AND purpose=? AND code=?`,
+             WHERE phone_number=? AND purpose=? AND code=?`,
 			phone, purpose, code,
 		)
 		if err != nil {
 			return false, err
 		}
-		return true, nil
+		// Commit the transaction to save the changes.
+		return true, tx.Commit()
 	}
 
 	return false, nil
-
 }

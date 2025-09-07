@@ -83,8 +83,12 @@ func (s Service) list(c *gin.Context) {
 		q.Limit = 50
 	}
 
-	rows, err := s.DB.Query(`SELECT id, sender_id, content, sent_at
-		FROM messages WHERE conversation_id=? ORDER BY sent_at DESC LIMIT ? OFFSET ?`, cid, q.Limit, q.Offset)
+	rows, err := s.DB.Query(`
+		SELECT m.id, m.sender_id, u.username, m.content, m.sent_at
+		FROM messages m
+		JOIN users u ON m.sender_id = u.id
+		WHERE m.conversation_id=?
+		ORDER BY m.sent_at DESC LIMIT ? OFFSET ?`, cid, q.Limit, q.Offset)
 	if err != nil {
 		httpx.Err(c, 500, "db error")
 		return
@@ -94,11 +98,8 @@ func (s Service) list(c *gin.Context) {
 	var list []gin.H
 	for rows.Next() {
 		var id, sid int64
-		var content, at string
-		_ = rows.Scan(&id, &sid, &content, &at)
-		// get sender username for convenience
-		var uname string
-		_ = s.DB.QueryRow(`SELECT username FROM users WHERE id=?`, sid).Scan(&uname)
+		var uname, content, at string
+		_ = rows.Scan(&id, &sid, &uname, &content, &at)
 		list = append(list, gin.H{
 			"id": id, "sender_id": sid, "sender_username": uname,
 			"content": content, "sent_at": at,
