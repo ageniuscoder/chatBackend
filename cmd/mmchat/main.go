@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ageniuscoder/mmchat/backend/internal/auth"
+	"github.com/ageniuscoder/mmchat/backend/internal/chat"
 	"github.com/ageniuscoder/mmchat/backend/internal/config"
 	"github.com/ageniuscoder/mmchat/backend/internal/profile"
 	"github.com/ageniuscoder/mmchat/backend/internal/storage/sqlite"
@@ -46,6 +47,10 @@ func main() {
 		slog.Info("Migration Completed")
 		return
 	}
+	//ws hub
+	hub := chat.NewHub(conn.Db)
+	go hub.Run()
+
 	//http server connection
 	r := gin.Default()
 
@@ -59,6 +64,7 @@ func main() {
 	priv := api.Group("")
 	priv.Use(authMidl)
 	profile.Register(priv, conn.Db)
+	chat.RegisterWS(priv, hub, cfg.JWTSecret)
 
 	/////////
 	srv := &http.Server{Addr: cfg.Addr, Handler: r}
