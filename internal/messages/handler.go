@@ -2,7 +2,9 @@ package messages
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/ageniuscoder/mmchat/backend/internal/auth"
 	"github.com/ageniuscoder/mmchat/backend/internal/chat"
@@ -28,7 +30,7 @@ type pageReq struct {
 }
 
 type readReq struct {
-	MessageID int64 `json:"message_id"`
+	MessageIDs []int64 `json:"message_ids"`
 }
 
 func Register(rg *gin.RouterGroup, db *sql.DB, hub *chat.Hub) {
@@ -120,17 +122,37 @@ func (s Service) markRead(c *gin.Context) {
 		return
 	}
 
-	// Update message_status
-	_, err := s.DB.Exec(`INSERT INTO message_status (message_id, user_id, status, read_at)
-		VALUES (?, ?, 'read', CURRENT_TIMESTAMP)
+	// Build the IN clause for the SQL query
+	if len(req.MessageIDs) == 0 {
+		httpx.OK(c, gin.H{"message": "no messages to mark as read"})
+		return
+	}
+
+	// Prepare the query with a dynamic number of placeholders
+	placeholders := make([]string, len(req.MessageIDs))
+	args := make([]interface{}, len(req.MessageIDs)+1)
+	for i := range req.MessageIDs {
+		placeholders[i] = "?"
+		args[i] = req.MessageIDs[i]
+	}
+	args[len(req.MessageIDs)] = uid
+
+	query := fmt.Sprintf(`INSERT INTO message_status (message_id, user_id, status, read_at)
+		VALUES %s
 		ON CONFLICT(message_id, user_id) DO UPDATE SET status='read', read_at=CURRENT_TIMESTAMP`,
-		req.MessageID, uid)
+		strings.TrimSuffix(strings.Repeat("(?, ?, 'read', CURRENT_TIMESTAMP),", len(req.MessageIDs)), ","))
+
+	// Update message_status
+	_, err := s.DB.Exec(query, args...)
 	if err != nil {
-		httpx.Err(c, 400, "db error")
+		httpx.Err(c, http.StatusBadRequest, "db error")
 		return
 	}
 
 	// Notify other participants via hub
-	s.Hub.BroadcastReadReceipt(req.MessageID, uid)
+	for _, mid := range req.MessageIDs {
+		s.Hub.BroadcastReadReceipt(mid, uid)
+	}
+
 	httpx.OK(c, gin.H{"message": "marked as read"})
 }

@@ -1,8 +1,8 @@
 package chat
 
 import (
+	"log"
 	"net/http"
-	"strings"
 
 	"github.com/ageniuscoder/mmchat/backend/internal/auth"
 	"github.com/gin-gonic/gin"
@@ -19,22 +19,16 @@ var upgrader = websocket.Upgrader{
 // RegisterWS mounts GET /ws for authenticated clients.
 // Auth works via:
 // 1) Header: Authorization: Bearer <JWT>
-// 2) Query:  ?token=<JWT>
-
 func RegisterWS(rg *gin.RouterGroup, hub *Hub, jwtSecret string) {
 	rg.GET("/ws", func(c *gin.Context) {
-		// Extract token
+		// Fix: Extract token from URL query parameter
 		token := c.Query("token")
+
 		if token == "" {
-			h := c.GetHeader("Authorization")
-			if strings.HasPrefix(h, "Bearer ") {
-				token = strings.TrimPrefix(h, "Bearer ")
-			}
-		}
-		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing token query parameter"})
 			return
 		}
+
 		cl, err := auth.ParseToken(jwtSecret, token)
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
@@ -43,6 +37,8 @@ func RegisterWS(rg *gin.RouterGroup, hub *Hub, jwtSecret string) {
 
 		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
+			log.Printf("Failed to upgrade connection: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to establish WebSocket connection"})
 			return
 		}
 

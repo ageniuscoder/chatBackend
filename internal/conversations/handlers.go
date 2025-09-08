@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/ageniuscoder/mmchat/backend/internal/auth"
 	"github.com/ageniuscoder/mmchat/backend/internal/httpx"
@@ -233,14 +234,23 @@ func (s Service) listMine(c *gin.Context) {
 			c.name,
 			c.is_group_chat,
 			c.created_at,
-			CASE WHEN c.is_group_chat = 0 THEN other_user.username ELSE c.name END as display_name
+			CASE WHEN c.is_group_chat = 0 THEN other_user.username ELSE c.name END as display_name,
+			CASE WHEN c.is_group_chat = 0 THEN other_user.profile_pic ELSE NULL END as avatar,
+			CASE WHEN c.is_group_chat = 0 THEN other_user.last_active ELSE NULL END as last_active,
+			(SELECT COUNT(1) FROM participants WHERE conversation_id = c.id) AS participant_count,
+			(SELECT m.content FROM messages m WHERE m.conversation_id = c.id ORDER BY m.sent_at DESC LIMIT 1) AS last_message,
+			(SELECT m.sent_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.sent_at DESC LIMIT 1) AS last_message_at,
+			COALESCE((SELECT COUNT(1)
+				FROM messages
+				WHERE conversation_id = c.id
+				AND id NOT IN (SELECT message_id FROM message_status WHERE user_id = ? AND status = 'read')), 0) AS unread_count
 		FROM conversations c
 		JOIN participants p1 ON p1.conversation_id = c.id
 		LEFT JOIN participants p2 ON c.is_group_chat = 0 AND p2.conversation_id = c.id AND p2.user_id != p1.user_id
 		LEFT JOIN users other_user ON p2.user_id = other_user.id
 		WHERE p1.user_id = ?
 		GROUP BY c.id
-		ORDER BY c.created_at DESC`, uid)
+		ORDER BY last_message_at DESC, c.created_at DESC`, uid, uid)
 	if err != nil {
 		httpx.Err(c, http.StatusInternalServerError, "failed to fetch conversations")
 		return
@@ -251,24 +261,53 @@ func (s Service) listMine(c *gin.Context) {
 
 	for rows.Next() {
 		var (
-			id          int64
-			name        sql.NullString
-			isg         bool
-			ca          string
-			displayName sql.NullString
+			id               int64
+			name             sql.NullString
+			isg              bool
+			ca               string
+			displayName      sql.NullString
+			avatar           sql.NullString
+			lastActive       sql.NullString
+			participantCount int64
+			lastMessage      sql.NullString
+			lastMessageAt    sql.NullString
+			unreadCount      int64
 		)
 
-		if err := rows.Scan(&id, &name, &isg, &ca, &displayName); err != nil {
+		if err := rows.Scan(&id, &name, &isg, &ca, &displayName, &avatar, &lastActive, &participantCount, &lastMessage, &lastMessageAt, &unreadCount); err != nil {
 			fmt.Printf("listMine: failed to scan row: %v\n", err)
 			continue
 		}
 
-		list = append(list, gin.H{
-			"id":         id,
-			"name":       displayName.String,
-			"is_group":   isg,
-			"created_at": ca,
-		})
+		isOnline := false
+		if lastActive.Valid {
+			parsedTime, parseErr := time.Parse("2006-01-02 15:04:05.999999999-07:00", lastActive.String)
+			if parseErr == nil {
+				isOnline = time.Since(parsedTime) < time.Minute
+			}
+		}
+
+		conversation := gin.H{
+			"id":                id,
+			"name":              displayName.String,
+			"is_group":          isg,
+			"created_at":        ca,
+			"participant_count": participantCount,
+			"unread_count":      unreadCount,
+			"avatar":            avatar.String,
+			"is_online":         isOnline,
+		}
+
+		if lastMessage.Valid {
+			// Correctly parse and format the timestamp for the frontend
+			parsedTime := utils.ParseTime(lastMessageAt.String)
+			conversation["last_message"] = gin.H{
+				"content":    lastMessage.String,
+				"created_at": parsedTime.Format(time.RFC3339), // <-- FIX: format the time string
+			}
+		}
+
+		list = append(list, conversation)
 	}
 
 	if err := rows.Err(); err != nil {

@@ -60,7 +60,7 @@ func main() {
 
 	//public routes
 	users.RegisterPublic(api, conn.Db, cfg)
-
+	chat.RegisterWS(api, hub, cfg.JWTSecret)
 	//protected routes
 	authMidl := auth.JWTMiddleware(cfg.JWTSecret)
 	priv := api.Group("")
@@ -68,7 +68,6 @@ func main() {
 	profile.Register(priv, conn.Db)
 	conversations.Register(priv, conn.Db)
 	messages.Register(priv, conn.Db, hub)
-	chat.RegisterWS(priv, hub, cfg.JWTSecret)
 
 	/////////
 	srv := &http.Server{Addr: cfg.Addr, Handler: r}

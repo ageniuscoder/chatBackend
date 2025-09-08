@@ -81,7 +81,7 @@ func (s Service) updateMe(c *gin.Context) {
 	}
 
 	_, err := s.DB.Exec(
-		`UPDATE users SET username=COALESCE(?, username), profile_pic=COALESCE(?, profile_pic) WHERE id=?`,
+		`UPDATE users SET username=?, profile_pic=? WHERE id=?`,
 		req.Username, req.ProfilePicture, uid,
 	)
 	if err != nil {
