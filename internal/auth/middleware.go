@@ -32,6 +32,20 @@ func JWTMiddleware(secret string) gin.HandlerFunc {
 	}
 }
 
+// added cors middleware
+func CorsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusOK)
+			return
+		}
+		c.Next()
+	}
+}
+
 // UserIDFromContext retrieves the user ID from the context safely.
 func UserIDFromContext(c *gin.Context) (int64, error) {
 	v, ok := c.Get(string(CtxUserID))

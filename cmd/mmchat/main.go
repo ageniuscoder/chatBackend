@@ -55,7 +55,7 @@ func main() {
 
 	//http server connection
 	r := gin.Default()
-
+	r.Use(auth.CorsMiddleware())
 	api := r.Group("/api")
 
 	//public routes
