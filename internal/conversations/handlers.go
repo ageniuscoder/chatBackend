@@ -302,8 +302,9 @@ func (s Service) listMine(c *gin.Context) {
 			// Correctly parse and format the timestamp for the frontend
 			parsedTime := utils.ParseTime(lastMessageAt.String)
 			conversation["last_message"] = gin.H{
-				"content":    lastMessage.String,
-				"created_at": parsedTime.Format(time.RFC3339), // <-- FIX: format the time string
+				"content": lastMessage.String,
+				// Ensure the time is formatted to RFC3339
+				"created_at": parsedTime.Format(time.RFC3339),
 			}
 		}
 

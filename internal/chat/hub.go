@@ -59,7 +59,7 @@ func (h *Hub) Run() {
 // BroadcastMessage sends a JSON payload to all participants of a conversation.
 func (h *Hub) BroadcastMessage(conversationID, senderID, messageID int64, content string) {
 	// Fetch all participants (single query)
-	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=?`, conversationID)
+	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=? AND user_id!=?`, conversationID, senderID)
 	if err != nil {
 		log.Printf("[hub] failed to fetch participants for conversation %d: %v", conversationID, err)
 		return
@@ -74,10 +74,11 @@ func (h *Hub) BroadcastMessage(conversationID, senderID, messageID int64, conten
 	}
 
 	// Fetch sent_at timestamp
-	var sentAt string
+	var sentAt time.Time
 	if err := h.DB.QueryRow(`SELECT sent_at FROM messages WHERE id=?`, messageID).Scan(&sentAt); err != nil {
 		log.Printf("[hub] failed to fetch sent_at for message %d: %v", messageID, err)
-		sentAt = time.Now().UTC().Format(time.RFC3339)
+		// Fallback to current time if DB query fails.
+		sentAt = time.Now()
 	}
 
 	// Prepare wire message payload
@@ -88,7 +89,7 @@ func (h *Hub) BroadcastMessage(conversationID, senderID, messageID int64, conten
 		SenderID:       senderID,
 		SenderUsername: senderUsername,
 		Content:        content,
-		SentAt:         sentAt,
+		SentAt:         sentAt.Format(time.RFC3339), // FIX: Format the time.Time object to RFC3339
 	}
 	payload, err := json.Marshal(wire)
 	if err != nil {
@@ -103,7 +104,8 @@ func (h *Hub) BroadcastMessage(conversationID, senderID, messageID int64, conten
 			log.Printf("[hub] failed to scan participant user_id: %v", err)
 			continue
 		}
-
+		// Add this line to log the recipient's ID
+		log.Printf("[hub] Attempting to send message %d to recipient %d", messageID, uid)
 		// Mark delivered for everyone except sender
 		if uid != senderID {
 			if _, err := h.DB.Exec(
