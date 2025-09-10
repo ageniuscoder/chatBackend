@@ -3,6 +3,7 @@ package conversations
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -280,10 +281,14 @@ func (s Service) listMine(c *gin.Context) {
 		}
 
 		isOnline := false
+
 		if lastActive.Valid {
-			parsedTime, parseErr := time.Parse("2006-01-02 15:04:05.999999999-07:00", lastActive.String)
+			parsedTime, parseErr := time.Parse("2006-01-02 15:04:05", lastActive.String)
 			if parseErr == nil {
 				isOnline = time.Since(parsedTime) < time.Minute
+			} else {
+				// Optional: log parsing error for debugging
+				log.Printf("Failed to parse last_active: %v", parseErr)
 			}
 		}
 
