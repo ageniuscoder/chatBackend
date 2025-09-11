@@ -14,11 +14,12 @@ type CustomErrorResponse struct {
 }
 
 // List of common SQLite time formats to try parsing.
+// Adjusted to match your DB format (no timezone, no fractional seconds).
 var timeFormats = []string{
-	"2006-01-02 15:04:05.999999",
-	"2006-01-02 15:04:05",
-	time.RFC3339,
-	time.RFC3339Nano,
+	"2006-01-02 15:04:05",        // Your DB format (YYYY-MM-DD HH:MM:SS)
+	"2006-01-02 15:04:05.999999", // If fractional seconds ever appear
+	time.RFC3339,                 // ISO 8601 (optional fallback)
+	time.RFC3339Nano,             // ISO 8601 with nanoseconds (optional fallback)
 }
 
 // ParseTime parses a time string using multiple common formats.
@@ -39,6 +40,7 @@ func ParseTime(t string) time.Time {
 	fmt.Printf("Warning: Could not parse time string %q with any known format.\n", t)
 	return time.Time{}
 }
+
 func ValidationErr(err validator.ValidationErrors) []CustomErrorResponse {
 	var errors []CustomErrorResponse
 	for _, fieldErr := range err {
