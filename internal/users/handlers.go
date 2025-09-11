@@ -2,6 +2,7 @@ package users
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -179,9 +180,11 @@ func (s Service) forgotComplete(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		if validationErrors, ok := err.(validator.ValidationErrors); ok {
 			httpx.Err(c, http.StatusBadRequest, utils.ValidationErr(validationErrors))
+			fmt.Println("validation error:", utils.ValidationErr(validationErrors))
 			return
 		}
 		httpx.Err(c, http.StatusBadRequest, err.Error())
+		fmt.Println("bad request error:", err.Error())
 		return
 	}
 
