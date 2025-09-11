@@ -137,7 +137,12 @@ func (h *Hub) BroadcastMessage(conversationID, senderID, messageID int64, conten
 // New helper: notify participants when someone reads a message
 func (h *Hub) BroadcastReadReceipt(messageID, readerID int64) {
 	var convID int64
-	_ = h.DB.QueryRow(`SELECT conversation_id FROM messages WHERE id=?`, messageID).Scan(&convID)
+	err := h.DB.QueryRow(`SELECT conversation_id FROM messages WHERE id=?`, messageID).Scan(&convID)
+	if err != nil {
+		// could be sql.ErrNoRows or real DB error
+		log.Printf("BroadcastReadReceipt: failed to get conversation_id for message %d: %v", messageID, err)
+		return
+	}
 
 	wire := WireMessage{
 		Type:           "read_receipt",
@@ -145,24 +150,42 @@ func (h *Hub) BroadcastReadReceipt(messageID, readerID int64) {
 		MessageID:      messageID,
 		SenderID:       readerID,
 	}
-	payload, _ := json.Marshal(wire)
+	payload, err := json.Marshal(wire)
+	if err != nil {
+		log.Printf("BroadcastReadReceipt: failed to marshal JSON: %v", err)
+		return
+	}
 
-	rows, _ := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=? AND user_id<>?`, convID, readerID)
+	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=? AND user_id<>?`, convID, readerID)
+	if err != nil {
+		log.Printf("BroadcastReadReceipt: failed to query participants for convID %d: %v", convID, err)
+		return
+	}
 	defer rows.Close()
 
 	for rows.Next() {
 		var uid int64
-		_ = rows.Scan(&uid)
+		if err := rows.Scan(&uid); err != nil {
+			log.Printf("BroadcastReadReceipt: failed to scan participant uid: %v", err)
+			continue
+		}
+
 		if set, ok := h.clients[uid]; ok {
 			for cli := range set {
 				select {
 				case cli.Send <- payload:
+					// sent successfully
 				default:
+					// client is not reading from channel
 					close(cli.Send)
 					delete(set, cli)
 				}
 			}
 		}
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("BroadcastReadReceipt: rows iteration error: %v", err)
 	}
 }
 
