@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/ageniuscoder/mmchat/backend/internal/auth"
@@ -91,12 +92,24 @@ func (s Service) updateMe(c *gin.Context) {
 }
 
 func (s Service) getLastSeen(c *gin.Context) {
-	userID := c.Param("id")
-	row := s.DB.QueryRow(`SELECT last_active FROM users WHERE id=?`, userID)
-	var lastSeen string
-	if err := row.Scan(&lastSeen); err != nil {
-		httpx.Err(c, 404, "user not found")
+	userIDStr := c.Param("id")
+	userID, err := strconv.ParseInt(userIDStr, 10, 64)
+	if err != nil {
+		httpx.Err(c, http.StatusBadRequest, "Invalid user ID")
 		return
 	}
-	httpx.OK(c, gin.H{"last_seen": lastSeen})
+
+	row := s.DB.QueryRow(`SELECT last_active FROM users WHERE id=?`, userID)
+	var lastActive time.Time
+	if err := row.Scan(&lastActive); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			httpx.Err(c, http.StatusNotFound, "user not found")
+		} else {
+			fmt.Printf("[getLastSeen] DB error: %v\n", err)
+			httpx.Err(c, http.StatusInternalServerError, "database error")
+		}
+		return
+	}
+
+	httpx.OK(c, gin.H{"last_seen": lastActive.Format(time.RFC3339)})
 }
