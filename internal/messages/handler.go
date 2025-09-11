@@ -4,8 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
-	"strings"
-	"time" // Import the time package for time formatting
+	"time"
 
 	"github.com/ageniuscoder/mmchat/backend/internal/auth"
 	"github.com/ageniuscoder/mmchat/backend/internal/chat"
@@ -123,6 +122,7 @@ func (s Service) list(c *gin.Context) {
 	}
 	httpx.OK(c, gin.H{"messages": list})
 }
+
 func (s Service) markRead(c *gin.Context) {
 	uid := auth.MustUserID(c)
 	var req readReq
@@ -135,36 +135,26 @@ func (s Service) markRead(c *gin.Context) {
 		return
 	}
 
-	// Build the IN clause for the SQL query
 	if len(req.MessageIDs) == 0 {
 		httpx.OK(c, gin.H{"message": "no messages to mark as read"})
 		return
 	}
 
-	// Prepare the query with a dynamic number of placeholders
-	placeholders := make([]string, len(req.MessageIDs))
-	args := make([]interface{}, len(req.MessageIDs)+1)
-	for i := range req.MessageIDs {
-		placeholders[i] = "?"
-		args[i] = req.MessageIDs[i]
-	}
-	args[len(req.MessageIDs)] = uid
-
-	query := fmt.Sprintf(`INSERT INTO message_status (message_id, user_id, status, read_at)
-		VALUES %s
-		ON CONFLICT(message_id, user_id) DO UPDATE SET status='read', read_at=CURRENT_TIMESTAMP`,
-		strings.TrimSuffix(strings.Repeat("(?, ?, 'read', CURRENT_TIMESTAMP),", len(req.MessageIDs)), ","))
-
-	// Update message_status
-	_, err := s.DB.Exec(query, args...)
-	if err != nil {
-		httpx.Err(c, http.StatusBadRequest, "db error")
-		return
-	}
-
-	// Notify other participants via hub
-	for _, mid := range req.MessageIDs {
-		s.Hub.BroadcastReadReceipt(mid, uid)
+	// Use a loop to update each message individually for simplicity and robustness.
+	// The ON CONFLICT clause handles cases where a message is already marked as read.
+	for _, messageID := range req.MessageIDs {
+		_, err := s.DB.Exec(`
+			INSERT INTO message_status (message_id, user_id, status, read_at)
+			VALUES (?, ?, 'read', CURRENT_TIMESTAMP)
+			ON CONFLICT(message_id, user_id) DO UPDATE SET status='read', read_at=CURRENT_TIMESTAMP
+		`, messageID, uid)
+		if err != nil {
+			// Log the error but continue processing other messages.
+			fmt.Printf("Failed to mark message %d as read for user %d: %v\n", messageID, uid, err)
+			continue
+		}
+		// Notify other participants via hub
+		s.Hub.BroadcastReadReceipt(messageID, uid)
 	}
 
 	httpx.OK(c, gin.H{"message": "marked as read"})
