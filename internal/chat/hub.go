@@ -172,14 +172,7 @@ func (h *Hub) BroadcastReadReceipt(messageID, readerID int64) {
 
 		if set, ok := h.clients[uid]; ok {
 			for cli := range set {
-				select {
-				case cli.Send <- payload:
-					// sent successfully
-				default:
-					// client is not reading from channel
-					close(cli.Send)
-					delete(set, cli)
-				}
+				cli.Send <- payload // sent successful
 			}
 		}
 	}
