@@ -93,7 +93,7 @@ func (s Service) signupInitiate(c *gin.Context) {
 		return
 	}
 
-	httpx.OK(c, gin.H{"message": "Otp Sent"})
+	httpx.OK(c, gin.H{"success": true, "message": "Otp Sent"})
 }
 
 func (s Service) signupVerify(c *gin.Context) {
@@ -109,7 +109,7 @@ func (s Service) signupVerify(c *gin.Context) {
 
 	ok, err := s.OTP.Verify(req.Phone, "signup", req.OTP)
 	if err != nil || !ok {
-		httpx.Err(c, http.StatusUnauthorized, "Invalid Otp")
+		httpx.Err(c, 422, "Invalid Otp")
 		return
 	}
 	hash, _ := auth.HashPassword(req.Password)
@@ -127,7 +127,7 @@ func (s Service) signupVerify(c *gin.Context) {
 		return
 	}
 
-	httpx.OK(c, gin.H{"token": tok, "user_id": uid})
+	httpx.OK(c, gin.H{"success": true, "token": tok, "user_id": uid})
 }
 
 func (s Service) login(c *gin.Context) {
@@ -146,16 +146,16 @@ func (s Service) login(c *gin.Context) {
 	var id int64
 	var hash string
 	if err := row.Scan(&id, &hash); err != nil {
-		httpx.Err(c, http.StatusUnauthorized, "Invalid Credentials")
+		httpx.Err(c, http.StatusBadRequest, "Invalid Credentials")
 		return
 	}
 
 	if err := auth.CheckPassword(hash, req.Password); err != nil {
-		httpx.Err(c, http.StatusUnauthorized, "Invalid Credentials")
+		httpx.Err(c, http.StatusBadRequest, "Invalid Credentials")
 		return
 	}
 	tok, _ := auth.NewToken(s.JWTSecret, id, s.JWTTTLMin)
-	httpx.OK(c, gin.H{"token": tok, "user_id": id})
+	httpx.OK(c, gin.H{"success": true, "token": tok, "user_id": id})
 }
 
 func (s Service) forgotInitiate(c *gin.Context) {
@@ -172,7 +172,7 @@ func (s Service) forgotInitiate(c *gin.Context) {
 		httpx.Err(c, http.StatusInternalServerError, "Otp Sent Failed")
 		return
 	}
-	httpx.OK(c, gin.H{"message": "otp sent"})
+	httpx.OK(c, gin.H{"success": true, "message": "otp sent"})
 }
 
 func (s Service) forgotComplete(c *gin.Context) {
@@ -191,7 +191,7 @@ func (s Service) forgotComplete(c *gin.Context) {
 	// Verify OTP and update password in one atomic step
 	ok, err := s.OTP.Verify(req.Phone, "reset", req.OTP)
 	if err != nil || !ok {
-		httpx.Err(c, http.StatusUnauthorized, "Invalid Otp")
+		httpx.Err(c, http.StatusUnprocessableEntity, "Invalid Otp")
 		return
 	}
 
@@ -201,5 +201,5 @@ func (s Service) forgotComplete(c *gin.Context) {
 		httpx.Err(c, http.StatusInternalServerError, "Update Password Failed")
 		return
 	}
-	httpx.OK(c, gin.H{"message": "password updated"})
+	httpx.OK(c, gin.H{"success": true, "message": "password updated"})
 }

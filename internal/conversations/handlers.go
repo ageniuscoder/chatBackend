@@ -96,7 +96,7 @@ func (s *Service) createOrGetPrivate(c *gin.Context) {
 		return
 	}
 
-	httpx.OK(c, gin.H{"conversation_id": id, "is_group": false})
+	httpx.OK(c, gin.H{"success": true, "conversation_id": id, "is_group": false})
 }
 
 func (s *Service) createGroup(c *gin.Context) {
@@ -173,7 +173,7 @@ func (s *Service) createGroup(c *gin.Context) {
 		return
 	}
 
-	httpx.OK(c, gin.H{"conversation_id": cid, "is_group": true})
+	httpx.OK(c, gin.H{"success": true, "conversation_id": cid, "is_group": true})
 }
 
 func (s Service) addParticipant(c *gin.Context) {
@@ -203,7 +203,7 @@ func (s Service) addParticipant(c *gin.Context) {
 		httpx.Err(c, 400, "add failed")
 		return
 	}
-	httpx.OK(c, gin.H{"ok": true})
+	httpx.OK(c, gin.H{"success": true})
 }
 
 func (s Service) removeParticipant(c *gin.Context) {
@@ -223,7 +223,7 @@ func (s Service) removeParticipant(c *gin.Context) {
 		httpx.Err(c, 400, "remove failed")
 		return
 	}
-	httpx.OK(c, gin.H{"ok": true})
+	httpx.OK(c, gin.H{"success": true})
 }
 
 func (s Service) listMine(c *gin.Context) {
@@ -321,5 +321,5 @@ func (s Service) listMine(c *gin.Context) {
 		return
 	}
 
-	httpx.OK(c, gin.H{"conversations": list})
+	httpx.OK(c, gin.H{"success": true, "conversations": list})
 }

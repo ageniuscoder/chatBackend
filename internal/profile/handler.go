@@ -61,6 +61,7 @@ func (s Service) getMe(c *gin.Context) {
 	}
 
 	httpx.OK(c, gin.H{
+		"success":         true,
 		"id":              id,
 		"username":        username,
 		"phone_number":    phone,
@@ -111,5 +112,5 @@ func (s Service) getLastSeen(c *gin.Context) {
 		return
 	}
 
-	httpx.OK(c, gin.H{"last_seen": lastActive.Format(time.RFC3339)})
+	httpx.OK(c, gin.H{"success": true, "last_seen": lastActive.Format(time.RFC3339)})
 }
