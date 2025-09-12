@@ -3,7 +3,6 @@ package conversations
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -280,36 +279,38 @@ func (s Service) listMine(c *gin.Context) {
 			continue
 		}
 
+		// Online check
 		isOnline := false
-
 		if lastActive.Valid {
-			parsedTime, parseErr := time.Parse("2006-01-02 15:04:05", lastActive.String)
-			if parseErr == nil {
-				isOnline = time.Since(parsedTime) < time.Minute
-			} else {
-				// Optional: log parsing error for debugging
-				log.Printf("Failed to parse last_active: %v", parseErr)
+			t := utils.ParseTime(lastActive.String)
+			if !t.IsZero() && time.Since(t) < time.Minute {
+				isOnline = true
 			}
 		}
 
+		// Base conversation object
 		conversation := gin.H{
 			"id":                id,
 			"name":              displayName.String,
 			"is_group":          isg,
-			"created_at":        ca,
 			"participant_count": participantCount,
 			"unread_count":      unreadCount,
 			"avatar":            avatar.String,
 			"is_online":         isOnline,
 		}
 
-		if lastMessage.Valid {
-			// Correctly parse and format the timestamp for the frontend
-			parsedTime := utils.ParseTime(lastMessageAt.String)
-			conversation["last_message"] = gin.H{
-				"content": lastMessage.String,
-				// Ensure the time is formatted to RFC3339
-				"created_at": parsedTime.Format(time.RFC3339),
+		// Created_at (safe parse)
+		if t := utils.ParseTime(ca); !t.IsZero() {
+			conversation["created_at"] = t.UTC().Format(time.RFC3339)
+		}
+
+		// Last message (safe parse)
+		if lastMessage.Valid && lastMessageAt.Valid {
+			if t := utils.ParseTime(lastMessageAt.String); !t.IsZero() {
+				conversation["last_message"] = gin.H{
+					"content":    lastMessage.String,
+					"created_at": t.UTC().Format(time.RFC3339),
+				}
 			}
 		}
 
