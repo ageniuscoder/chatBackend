@@ -248,6 +248,7 @@ func (s Service) listMine(c *gin.Context) {
 			COALESCE((SELECT COUNT(1)
 				FROM messages
 				WHERE conversation_id = c.id
+				AND sender_id != ?
 				AND id NOT IN (SELECT message_id FROM message_status WHERE user_id = ? AND status = 'read')), 0) AS unread_count
 		FROM conversations c
 		JOIN participants p1 ON p1.conversation_id = c.id
@@ -255,7 +256,7 @@ func (s Service) listMine(c *gin.Context) {
 		LEFT JOIN users other_user ON p2.user_id = other_user.id
 		WHERE p1.user_id = ?
 		GROUP BY c.id
-		ORDER BY last_message_at DESC, c.created_at DESC`, uid, uid)
+		ORDER BY last_message_at DESC, c.created_at DESC`, uid, uid, uid)
 	if err != nil {
 		httpx.Err(c, http.StatusInternalServerError, "failed to fetch conversations")
 		return
