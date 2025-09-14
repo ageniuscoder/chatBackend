@@ -213,15 +213,19 @@ func (h *Hub) BroadcastTyping(convID, userID int64, eventType string) {
 	}
 }
 
+// update: BroadcastPresence now includes last_active timestamp
 func (h *Hub) BroadcastPresence(userID int64, status string) {
 	var username string
-	_ = h.DB.QueryRow(`SELECT username FROM users WHERE id=?`, userID).Scan(&username)
+	var lastActive time.Time
+	// Fetch username and last_active timestamp in a single query
+	_ = h.DB.QueryRow(`SELECT username, last_active FROM users WHERE id=?`, userID).Scan(&username, &lastActive)
 
 	wire := WireMessage{
 		Type:           "presence",
 		SenderID:       userID,
 		SenderUsername: username,
-		Content:        status, // "online" or "offline"
+		Content:        status,
+		LastActive:     lastActive.Format(time.RFC3339), // Use the new field
 	}
 	payload, _ := json.Marshal(wire)
 
@@ -234,7 +238,7 @@ func (h *Hub) BroadcastPresence(userID int64, status string) {
 		userID, userID,
 	)
 	defer rows.Close()
-
+	// Broadcast to all other participants
 	for rows.Next() {
 		var uid int64
 		_ = rows.Scan(&uid)

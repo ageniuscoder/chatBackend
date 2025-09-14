@@ -242,6 +242,7 @@ func (s Service) listMine(c *gin.Context) {
 			CASE WHEN c.is_group_chat = 0 THEN other_user.username ELSE c.name END as display_name,
 			CASE WHEN c.is_group_chat = 0 THEN other_user.profile_pic ELSE NULL END as avatar,
 			CASE WHEN c.is_group_chat = 0 THEN other_user.last_active ELSE NULL END as last_active,
+			CASE WHEN c.is_group_chat = 0 THEN other_user.id ELSE NULL END as other_user_id,
 			(SELECT COUNT(1) FROM participants WHERE conversation_id = c.id) AS participant_count,
 			(SELECT m.content FROM messages m WHERE m.conversation_id = c.id ORDER BY m.sent_at DESC LIMIT 1) AS last_message,
 			(SELECT m.sent_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.sent_at DESC LIMIT 1) AS last_message_at,
@@ -274,13 +275,14 @@ func (s Service) listMine(c *gin.Context) {
 			displayName      sql.NullString
 			avatar           sql.NullString
 			lastActive       sql.NullString
+			otherUserId      sql.NullInt64
 			participantCount int64
 			lastMessage      sql.NullString
 			lastMessageAt    sql.NullString
 			unreadCount      int64
 		)
 
-		if err := rows.Scan(&id, &name, &isg, &ca, &displayName, &avatar, &lastActive, &participantCount, &lastMessage, &lastMessageAt, &unreadCount); err != nil {
+		if err := rows.Scan(&id, &name, &isg, &ca, &displayName, &avatar, &lastActive, &otherUserId, &participantCount, &lastMessage, &lastMessageAt, &unreadCount); err != nil {
 			fmt.Printf("listMine: failed to scan row: %v\n", err)
 			continue
 		}
@@ -303,6 +305,18 @@ func (s Service) listMine(c *gin.Context) {
 			"unread_count":      unreadCount,
 			"avatar":            avatar.String,
 			"is_online":         isOnline,
+		}
+
+		if otherUserId.Valid {
+			conversation["other_user_id"] = otherUserId.Int64
+		}
+
+		// FIX: Add this block to include the last_active timestamp in the response
+		if lastActive.Valid {
+			t := utils.ParseTime(lastActive.String)
+			if !t.IsZero() {
+				conversation["last_seen"] = t.UTC().Format(time.RFC3339)
+			}
 		}
 
 		// Created_at (safe parse)

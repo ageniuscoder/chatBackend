@@ -8,4 +8,5 @@ type WireMessage struct {
 	SenderUsername string `json:"sender_username,omitempty"`
 	Content        string `json:"content,omitempty"` // used for presence = "online"/"offline"
 	SentAt         string `json:"sent_at,omitempty"`
+	LastActive     string `json:"last_active,omitempty"` // used for presence
 }
