@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/ageniuscoder/mmchat/backend/internal/auth"
@@ -29,8 +28,6 @@ func Register(rg *gin.RouterGroup, db *sql.DB) {
 	}
 	rg.GET("/me", s.getMe)
 	rg.PUT("/me", s.updateMe)
-	rg.GET("/users/:id/last-seen", s.getLastSeen)
-
 }
 
 func (s Service) getMe(c *gin.Context) {
@@ -41,8 +38,8 @@ func (s Service) getMe(c *gin.Context) {
 		return
 	}
 
-	row := s.DB.QueryRow( //bug here at profile pic
-		`SELECT id, username, phone_number, COALESCE(profile_pic, '') AS profile_pic, created_at 
+	row := s.DB.QueryRow(
+		`SELECT id, username, phone_number, COALESCE(profile_pic, '') AS profile_pic, created_at
 		FROM users WHERE id=?`, uid,
 	)
 
@@ -90,27 +87,4 @@ func (s Service) updateMe(c *gin.Context) {
 		httpx.Err(c, http.StatusInternalServerError, "Profile Update failed")
 	}
 	s.getMe(c)
-}
-
-func (s Service) getLastSeen(c *gin.Context) {
-	userIDStr := c.Param("id")
-	userID, err := strconv.ParseInt(userIDStr, 10, 64)
-	if err != nil {
-		httpx.Err(c, http.StatusBadRequest, "Invalid user ID")
-		return
-	}
-
-	row := s.DB.QueryRow(`SELECT last_active FROM users WHERE id=?`, userID)
-	var lastActive time.Time
-	if err := row.Scan(&lastActive); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			httpx.Err(c, http.StatusNotFound, "user not found")
-		} else {
-			fmt.Printf("[getLastSeen] DB error: %v\n", err)
-			httpx.Err(c, http.StatusInternalServerError, "database error")
-		}
-		return
-	}
-
-	httpx.OK(c, gin.H{"success": true, "last_seen": lastActive.Format(time.RFC3339)})
 }
