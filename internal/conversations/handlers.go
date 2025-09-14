@@ -46,10 +46,13 @@ func (s *Service) createOrGetPrivate(c *gin.Context) {
 	var req privateReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		if validationErrors, ok := err.(validator.ValidationErrors); ok {
+			fmt.Println("Validation errors:", validationErrors)
 			httpx.Err(c, http.StatusBadRequest, utils.ValidationErr(validationErrors))
 			return
 		}
 		httpx.Err(c, http.StatusBadRequest, err.Error())
+		fmt.Println(c)
+		fmt.Println("Binding error:", err)
 		return
 	}
 
@@ -77,6 +80,7 @@ func (s *Service) createOrGetPrivate(c *gin.Context) {
 	res, err := tx.Exec(`INSERT INTO conversations (name, is_group_chat) VALUES (NULL, 0)`)
 	if err != nil {
 		httpx.Err(c, 400, "create conversation failed")
+		fmt.Println("Insert conversation error:", err)
 		return
 	}
 	id, _ = res.LastInsertId()
@@ -85,6 +89,7 @@ func (s *Service) createOrGetPrivate(c *gin.Context) {
 	_, err = tx.Exec(`INSERT INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 0), (?, ?, 0)`,
 		id, uid, id, req.OtherUserId)
 	if err != nil {
+		fmt.Println("Insert participants error:", err)
 		httpx.Err(c, 400, "invalid user id")
 		return
 	}
