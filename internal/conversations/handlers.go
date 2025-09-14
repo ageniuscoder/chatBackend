@@ -39,6 +39,7 @@ func Register(rg *gin.RouterGroup, db *sql.DB) {
 	rg.POST("/conversations/:id/participants", s.addParticipant)
 	rg.DELETE("/conversations/:id/participants/:userId", s.removeParticipant)
 	rg.GET("/conversations", s.listMine)
+	rg.GET("/conversations/:id/participants", s.listParticipants)
 }
 
 func (s *Service) createOrGetPrivate(c *gin.Context) {
@@ -343,4 +344,47 @@ func (s Service) listMine(c *gin.Context) {
 	}
 
 	httpx.OK(c, gin.H{"success": true, "conversations": list})
+}
+
+// New function to list participants of a conversation
+func (s *Service) listParticipants(c *gin.Context) {
+	// Ensure the current user is a participant
+	uid := auth.MustUserID(c)
+	cid := c.Param("id")
+	var isParticipant bool
+	_ = s.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM participants WHERE conversation_id=? AND user_id=?)`, cid, uid).Scan(&isParticipant)
+	if !isParticipant {
+		httpx.Err(c, http.StatusForbidden, "not a member of this group")
+		return
+	}
+
+	rows, err := s.DB.Query(`
+		SELECT u.id, u.username, u.profile_pic, p.is_admin
+		FROM participants p
+		JOIN users u ON p.user_id = u.id
+		WHERE p.conversation_id=?`, cid)
+	if err != nil {
+		httpx.Err(c, http.StatusInternalServerError, "database error")
+		return
+	}
+	defer rows.Close()
+
+	var participants []gin.H
+	for rows.Next() {
+		var id int64
+		var username string
+		var profilePic sql.NullString
+		var isAdmin bool
+		if err := rows.Scan(&id, &username, &profilePic, &isAdmin); err != nil {
+			continue
+		}
+		participants = append(participants, gin.H{
+			"id":              id,
+			"username":        username,
+			"profile_picture": profilePic.String,
+			"is_admin":        isAdmin,
+		})
+	}
+
+	httpx.OK(c, gin.H{"success": true, "participants": participants})
 }
