@@ -56,9 +56,12 @@ func RegisterPublic(rg *gin.RouterGroup, db *sql.DB, cfg config.Config) {
 		JWTSecret: cfg.JWTSecret,
 		JWTTTLMin: cfg.JWTTTLMin,
 		OTP: otp.Service{
-			DB:     db,
-			Digits: cfg.OTPDigits,
-			TTL:    time.Duration(cfg.OTPTTLSec) * time.Second,
+			DB:          db,
+			Digits:      cfg.OTPDigits,
+			TTL:         time.Duration(cfg.OTPTTLSec) * time.Second,
+			TwilioSID:   cfg.TwilioSID,
+			TwilioToken: cfg.TwilioToken,
+			TwilioFrom:  cfg.TwilioFrom,
 		},
 	}
 
@@ -79,6 +82,13 @@ func (s Service) signupInitiate(c *gin.Context) {
 		httpx.Err(c, http.StatusBadRequest, err.Error())
 		return
 	}
+	// 🔑 Normalize phone
+	normalized, err := utils.NormalizePhone(req.Phone, "IN") // default India
+	if err != nil {
+		httpx.Err(c, http.StatusBadRequest, "Invalid phone number")
+		return
+	}
+	req.Phone = normalized
 
 	var count int
 	_ = s.DB.QueryRow(`SELECT COUNT(1) FROM users WHERE username=? OR phone_number=?`, req.Username, req.Phone).Scan(&count)
@@ -89,6 +99,7 @@ func (s Service) signupInitiate(c *gin.Context) {
 	}
 
 	if _, err := s.OTP.Genrate(req.Phone, "signup"); err != nil {
+		fmt.Println("otp generation error:", err)
 		httpx.Err(c, http.StatusInternalServerError, "Otp Sent Failed")
 		return
 	}
@@ -168,6 +179,14 @@ func (s Service) forgotInitiate(c *gin.Context) {
 		httpx.Err(c, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	normalized, err := utils.NormalizePhone(req.Phone, "IN")
+	if err != nil {
+		httpx.Err(c, http.StatusBadRequest, "Invalid phone number")
+		return
+	}
+	req.Phone = normalized
+
 	if _, err := s.OTP.Genrate(req.Phone, "reset"); err != nil {
 		httpx.Err(c, http.StatusInternalServerError, "Otp Sent Failed")
 		return

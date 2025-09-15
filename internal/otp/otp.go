@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"math/big"
 	"time"
+
+	"github.com/twilio/twilio-go"
+	openapi "github.com/twilio/twilio-go/rest/api/v2010"
 )
 
 // Store is the interface for our database operations.
@@ -17,9 +20,12 @@ type Store interface {
 }
 
 type Service struct {
-	DB     Store
-	Digits int
-	TTL    time.Duration
+	DB          Store
+	Digits      int
+	TTL         time.Duration
+	TwilioSID   string
+	TwilioToken string
+	TwilioFrom  string // your Twilio phone number
 }
 
 func randomDigit(n int) (string, error) {
@@ -51,7 +57,21 @@ func (s *Service) Genrate(phone, purpose string) (string, error) {
 		return "", err
 	}
 
-	fmt.Printf("[OTP] %s for %s: %s\n", purpose, phone, code)
+	// ✅ Send OTP via Twilio SMS //stub sender
+	client := twilio.NewRestClientWithParams(twilio.ClientParams{
+		Username: s.TwilioSID,
+		Password: s.TwilioToken,
+	})
+
+	params := &openapi.CreateMessageParams{}
+	params.SetTo(phone)          // user's phone number
+	params.SetFrom(s.TwilioFrom) // your Twilio number
+	params.SetBody(fmt.Sprintf("Your verification code for %s for MmChat : %s", purpose, code))
+
+	_, err = client.Api.CreateMessage(params)
+	if err != nil {
+		return "", fmt.Errorf("failed to send SMS: %w", err)
+	}
 
 	return code, nil
 }

@@ -12,6 +12,10 @@ type Config struct {
 	SQLITEDsn string
 	OTPDigits int
 	OTPTTLSec int
+	// ✅ Twilio config
+	TwilioSID   string
+	TwilioToken string
+	TwilioFrom  string // your Twilio phone number
 }
 
 func getenv(key, def string) string {
@@ -28,12 +32,15 @@ func MustLoad() Config {
 	otpttl, _ := strconv.Atoi(getenv("OTP_TTL_SEC", "300"))
 
 	cfg := Config{
-		Addr:      getenv("HTTP_ADDR", ":8080"),
-		JWTSecret: getenv("JWT_SECRET", "mangal"),
-		JWTTTLMin: jwtttl,
-		SQLITEDsn: getenv("SQLITE_DSN", "file:chat.db?_pragma=foreign_keys(ON)"),
-		OTPDigits: otpdigit,
-		OTPTTLSec: otpttl,
+		Addr:        getenv("HTTP_ADDR", ":8080"),
+		JWTSecret:   getenv("JWT_SECRET", ""),
+		JWTTTLMin:   jwtttl,
+		SQLITEDsn:   getenv("SQLITE_DSN", "file:chat.db?_pragma=foreign_keys(ON)"),
+		OTPDigits:   otpdigit,
+		OTPTTLSec:   otpttl,
+		TwilioSID:   getenv("TWILIO_ACCOUNT_SID", ""),
+		TwilioToken: getenv("TWILIO_AUTH_TOKEN", ""),
+		TwilioFrom:  getenv("TWILIO_FROM", ""),
 	}
 	return cfg
 }
