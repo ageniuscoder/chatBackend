@@ -68,6 +68,8 @@ func RegisterPublic(rg *gin.RouterGroup, db *sql.DB, cfg config.Config) {
 	rg.POST("/signup/initiate", s.signupInitiate)
 	rg.POST("/signup/verify", s.signupVerify)
 	rg.POST("/login", s.login)
+	// New logout endpoint
+	rg.POST("/logout", s.logout)
 	rg.POST("/forgot/initiate", s.forgotInitiate)
 	rg.POST("/forgot/reset", s.forgotComplete) // New combined endpoint
 }
@@ -169,6 +171,12 @@ func (s Service) login(c *gin.Context) {
 	tok, _ := auth.NewToken(s.JWTSecret, id, s.JWTTTLMin)
 	c.SetCookie("token", tok, s.JWTTTLMin*60, "/", "", true, true)
 	httpx.OK(c, gin.H{"success": true, "user_id": id})
+}
+
+func (s Service) logout(c *gin.Context) {
+	// Set the cookie to expire immediately by using a past date
+	c.SetCookie("token", "", -1, "/", "", true, true)
+	httpx.OK(c, gin.H{"success": true, "message": "Logged out successfully"})
 }
 
 func (s Service) forgotInitiate(c *gin.Context) {
