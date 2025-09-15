@@ -254,3 +254,39 @@ func (h *Hub) BroadcastPresence(userID int64, status string) {
 		}
 	}
 }
+
+func (h *Hub) BroadcastConversationUpdate(conversationID int64, updateType string) {
+	wire := WireMessage{
+		Type:           "conversation_update",
+		ConversationID: conversationID,
+		Content:        updateType, // e.g., "new_conversation", "participant_added", "participant_removed"
+	}
+	payload, _ := json.Marshal(wire)
+
+	// Fetch all participants of the conversation
+	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=?`, conversationID)
+	if err != nil {
+		log.Printf("[hub] failed to fetch participants for broadcast update: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var uid int64
+		if err := rows.Scan(&uid); err != nil {
+			log.Printf("[hub] failed to scan participant user_id for broadcast update: %v", err)
+			continue
+		}
+		if set, ok := h.clients[uid]; ok {
+			for client := range set {
+				select {
+				case client.Send <- payload:
+				default:
+					close(client.Send)
+					delete(set, client)
+					log.Printf("[hub] dropped slow client for user %d during broadcast update", uid)
+				}
+			}
+		}
+	}
+}
