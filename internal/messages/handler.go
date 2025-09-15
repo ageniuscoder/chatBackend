@@ -140,21 +140,49 @@ func (s Service) markRead(c *gin.Context) {
 		return
 	}
 
+	// Begin a transaction to ensure atomicity
+	tx, err := s.DB.Begin()
+	if err != nil {
+		httpx.Err(c, http.StatusInternalServerError, "Failed to start transaction")
+		return
+	}
+	defer tx.Rollback()
+
 	// Use a loop to update each message individually for simplicity and robustness.
-	// The ON CONFLICT clause handles cases where a message is already marked as read.
 	for _, messageID := range req.MessageIDs {
-		_, err := s.DB.Exec(`
+		// First, check if the current user is a participant of the conversation
+		// to which the message belongs.
+		var conversationID int64
+		err := tx.QueryRow(`SELECT conversation_id FROM messages WHERE id=?`, messageID).Scan(&conversationID)
+		if err != nil {
+			fmt.Printf("Failed to get conversation_id for message %d: %v\n", messageID, err)
+			continue
+		}
+
+		var isParticipant bool
+		err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM participants WHERE conversation_id=? AND user_id=?)`, conversationID, uid).Scan(&isParticipant)
+		if err != nil || !isParticipant {
+			fmt.Printf("User %d is not a participant of conversation %d\n", uid, conversationID)
+			continue
+		}
+
+		// Update or Insert the message status.
+		_, err = tx.Exec(`
 			INSERT INTO message_status (message_id, user_id, status, read_at)
 			VALUES (?, ?, 'read', CURRENT_TIMESTAMP)
 			ON CONFLICT(message_id, user_id) DO UPDATE SET status='read', read_at=CURRENT_TIMESTAMP
 		`, messageID, uid)
 		if err != nil {
-			// Log the error but continue processing other messages.
 			fmt.Printf("Failed to mark message %d as read for user %d: %v\n", messageID, uid, err)
 			continue
 		}
 		// Notify other participants via hub
 		s.Hub.BroadcastReadReceipt(messageID, uid)
+	}
+
+	if err := tx.Commit(); err != nil {
+		httpx.Err(c, http.StatusInternalServerError, "Failed to commit transaction")
+		return
 	}
 
 	httpx.OK(c, gin.H{"message": "marked as read"})

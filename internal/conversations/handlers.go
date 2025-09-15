@@ -259,11 +259,14 @@ func (s Service) listMine(c *gin.Context) {
 			(SELECT COUNT(1) FROM participants WHERE conversation_id = c.id) AS participant_count,
 			(SELECT m.content FROM messages m WHERE m.conversation_id = c.id ORDER BY m.sent_at DESC LIMIT 1) AS last_message,
 			(SELECT m.sent_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.sent_at DESC LIMIT 1) AS last_message_at,
-			COALESCE((SELECT COUNT(1)
-				FROM messages
-				WHERE conversation_id = c.id
-				AND sender_id != ?
-				AND id NOT IN (SELECT message_id FROM message_status WHERE user_id = ? AND status = 'read')), 0) AS unread_count
+			COALESCE((
+				SELECT COUNT(m.id)
+				FROM messages m
+				LEFT JOIN message_status ms ON m.id = ms.message_id AND ms.user_id = ?
+				WHERE m.conversation_id = c.id
+				AND m.sender_id != ?
+				AND ms.status IS NULL
+			), 0) AS unread_count
 		FROM conversations c
 		JOIN participants p1 ON p1.conversation_id = c.id
 		LEFT JOIN participants p2 ON c.is_group_chat = 0 AND p2.conversation_id = c.id AND p2.user_id != p1.user_id
