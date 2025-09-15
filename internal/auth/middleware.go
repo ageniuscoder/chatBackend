@@ -3,7 +3,6 @@ package auth
 import (
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,12 +13,16 @@ const CtxUserID ctxKey = "uid"
 
 func JWTMiddleware(secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		h := c.GetHeader("Authorization")
-		if h == "" || !strings.HasPrefix(h, "Bearer ") {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing bearer token"})
+		tok, err := c.Cookie("token")
+		if err != nil {
+			if err == http.ErrNoCookie {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing token cookie"})
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "cookie read error"})
 			return
 		}
-		tok := strings.TrimPrefix(h, "Bearer ")
+
 		claims, err := ParseToken(secret, tok)
 		fmt.Println(claims)
 		if err != nil {
@@ -37,7 +40,9 @@ func CorsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		// Handle preflight requests
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(http.StatusOK)
 			return

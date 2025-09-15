@@ -61,11 +61,12 @@ func main() {
 
 	//public routes
 	users.RegisterPublic(api, conn.Db, cfg)
-	chat.RegisterWS(api, hub, cfg.JWTSecret)
+
 	//protected routes
 	authMidl := auth.JWTMiddleware(cfg.JWTSecret)
 	priv := api.Group("")
 	priv.Use(authMidl)
+	chat.RegisterWS(priv, hub, cfg.JWTSecret)
 	profile.Register(priv, conn.Db)
 	conversations.Register(priv, conn.Db, hub)
 	messages.Register(priv, conn.Db, hub)

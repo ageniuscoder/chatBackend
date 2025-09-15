@@ -137,8 +137,9 @@ func (s Service) signupVerify(c *gin.Context) {
 		httpx.Err(c, http.StatusInternalServerError, "Token Genration Failed")
 		return
 	}
+	c.SetCookie("token", tok, s.JWTTTLMin*60, "/", "", true, true)
 
-	httpx.OK(c, gin.H{"success": true, "token": tok, "user_id": uid})
+	httpx.OK(c, gin.H{"success": true, "user_id": uid})
 }
 
 func (s Service) login(c *gin.Context) {
@@ -166,7 +167,8 @@ func (s Service) login(c *gin.Context) {
 		return
 	}
 	tok, _ := auth.NewToken(s.JWTSecret, id, s.JWTTTLMin)
-	httpx.OK(c, gin.H{"success": true, "token": tok, "user_id": id})
+	c.SetCookie("token", tok, s.JWTTTLMin*60, "/", "", true, true)
+	httpx.OK(c, gin.H{"success": true, "user_id": id})
 }
 
 func (s Service) forgotInitiate(c *gin.Context) {

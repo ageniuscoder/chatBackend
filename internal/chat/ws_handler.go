@@ -12,28 +12,17 @@ import (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	// Allow CORS for demo; tighten in prod.
-	CheckOrigin: func(r *http.Request) bool { return true },
+	// Use CheckOrigin to allow connections from your frontend URL
+	CheckOrigin: func(r *http.Request) bool {
+		return r.Header.Get("Origin") == "http://localhost:5173"
+	},
 }
 
 // RegisterWS mounts GET /ws for authenticated clients.
-// Auth works via:
-// 1) Header: Authorization: Bearer <JWT>
+// The Gin context is automatically checked by JWTMiddleware
 func RegisterWS(rg *gin.RouterGroup, hub *Hub, jwtSecret string) {
 	rg.GET("/ws", func(c *gin.Context) {
-		// Fix: Extract token from URL query parameter
-		token := c.Query("token")
-
-		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing token query parameter"})
-			return
-		}
-
-		cl, err := auth.ParseToken(jwtSecret, token)
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
-			return
-		}
+		uid := auth.MustUserID(c)
 
 		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
@@ -46,7 +35,7 @@ func RegisterWS(rg *gin.RouterGroup, hub *Hub, jwtSecret string) {
 			Hub:    hub,
 			Conn:   conn,
 			Send:   make(chan []byte, 256),
-			UserID: cl.UserId,
+			UserID: uid,
 		}
 		hub.register <- client
 
