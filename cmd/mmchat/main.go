@@ -67,7 +67,7 @@ func main() {
 	priv := api.Group("")
 	priv.Use(authMidl)
 	profile.Register(priv, conn.Db)
-	conversations.Register(priv, conn.Db)
+	conversations.Register(priv, conn.Db, hub)
 	messages.Register(priv, conn.Db, hub)
 	feature.Register(priv, conn.Db)
 

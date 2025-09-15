@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/ageniuscoder/mmchat/backend/internal/auth"
+	"github.com/ageniuscoder/mmchat/backend/internal/chat"
 	"github.com/ageniuscoder/mmchat/backend/internal/httpx"
 	"github.com/ageniuscoder/mmchat/backend/internal/utils"
 	"github.com/gin-gonic/gin"
@@ -14,7 +16,8 @@ import (
 )
 
 type Service struct {
-	DB *sql.DB
+	DB  *sql.DB
+	Hub *chat.Hub
 }
 
 type privateReq struct {
@@ -30,9 +33,10 @@ type addReq struct {
 	UserID int64 `json:"user_id"`
 }
 
-func Register(rg *gin.RouterGroup, db *sql.DB) {
+func Register(rg *gin.RouterGroup, db *sql.DB, hub *chat.Hub) {
 	s := Service{
-		DB: db,
+		DB:  db,
+		Hub: hub,
 	}
 	rg.POST("/conversations/private", s.createOrGetPrivate)
 	rg.POST("/conversations/group", s.createGroup)
@@ -100,6 +104,7 @@ func (s *Service) createOrGetPrivate(c *gin.Context) {
 		httpx.Err(c, 500, "commit failed")
 		return
 	}
+	s.Hub.BroadcastConversationUpdate(id, "new_conversation") // Notify participants of new conversation
 
 	httpx.OK(c, gin.H{"success": true, "conversation_id": id, "is_group": false})
 }
@@ -178,12 +183,15 @@ func (s *Service) createGroup(c *gin.Context) {
 		return
 	}
 
+	s.Hub.BroadcastConversationUpdate(cid, "new_conversation") // Notify participants of new conversation
+
 	httpx.OK(c, gin.H{"success": true, "conversation_id": cid, "is_group": true})
 }
 
 func (s Service) addParticipant(c *gin.Context) {
 	uid := auth.MustUserID(c)
 	cid := c.Param("id")
+	ncid, _ := strconv.ParseInt(cid, 10, 64) // Convert cid to int64
 
 	//ensure uid is admin
 	var n int
@@ -208,12 +216,15 @@ func (s Service) addParticipant(c *gin.Context) {
 		httpx.Err(c, 400, "add failed")
 		return
 	}
+
+	s.Hub.BroadcastConversationUpdate(ncid, "added_to_conversation") // Notify the added user
 	httpx.OK(c, gin.H{"success": true})
 }
 
 func (s Service) removeParticipant(c *gin.Context) {
 	uid := auth.MustUserID(c)
 	cid := c.Param("id")
+	ncid, _ := strconv.ParseInt(cid, 10, 64) // Convert cid to int64
 
 	//ensure uid is admin
 	var n int
@@ -228,6 +239,7 @@ func (s Service) removeParticipant(c *gin.Context) {
 		httpx.Err(c, 400, "remove failed")
 		return
 	}
+	s.Hub.BroadcastConversationUpdate(ncid, "removed_from_conversation") // Notify the removed user
 	httpx.OK(c, gin.H{"success": true})
 }
 
