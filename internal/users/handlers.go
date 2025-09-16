@@ -120,6 +120,14 @@ func (s Service) signupVerify(c *gin.Context) {
 		return
 	}
 
+	// ADD THIS LINE
+	normalized, err := utils.NormalizePhone(req.Phone, "IN") //for normalizing phone number
+	if err != nil {
+		httpx.Err(c, http.StatusBadRequest, "Invalid phone number")
+		return
+	}
+	req.Phone = normalized
+
 	ok, err := s.OTP.Verify(req.Phone, "signup", req.OTP)
 	if err != nil || !ok {
 		httpx.Err(c, 422, "Invalid Otp")
