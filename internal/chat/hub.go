@@ -290,3 +290,51 @@ func (h *Hub) BroadcastConversationUpdate(conversationID int64, updateType strin
 		}
 	}
 }
+
+// BroadcastSystemMessage sends a system-generated message to a conversation's participants.
+func (h *Hub) BroadcastSystemMessage(conversationID int64, content string) {
+	// A system message has no sender, so we can use a special ID like -1 or 0
+	const systemUserID = 0
+
+	// Prepare wire message payload
+	wire := WireMessage{
+		Type:           "system_message", // New type for system messages
+		ConversationID: conversationID,
+		SenderID:       systemUserID,
+		Content:        content,
+		SentAt:         time.Now().UTC().Format(time.RFC3339),
+	}
+	payload, err := json.Marshal(wire)
+	if err != nil {
+		log.Printf("[hub] failed to marshal system message: %v", err)
+		return
+	}
+
+	// Fetch all participants (including the one who initiated the removal)
+	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=?`, conversationID)
+	if err != nil {
+		log.Printf("[hub] failed to fetch participants for conversation %d: %v", conversationID, err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var uid int64
+		if err := rows.Scan(&uid); err != nil {
+			log.Printf("[hub] failed to scan participant user_id: %v", err)
+			continue
+		}
+
+		if set, ok := h.clients[uid]; ok {
+			for client := range set {
+				select {
+				case client.Send <- payload:
+				default:
+					close(client.Send)
+					delete(set, client)
+					log.Printf("[hub] dropped slow client for user %d", uid)
+				}
+			}
+		}
+	}
+}
