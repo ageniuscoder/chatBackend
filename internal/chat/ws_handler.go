@@ -14,7 +14,8 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 	// Use CheckOrigin to allow connections from your frontend URL
 	CheckOrigin: func(r *http.Request) bool {
-		return r.Header.Get("Origin") == "http://localhost:5173"
+		origin := r.Header.Get("Origin")
+		return origin == "http://localhost:5173" || origin == "https://chatfrontend-mijn.onrender.com"
 	},
 }
 
