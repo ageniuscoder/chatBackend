@@ -39,15 +39,15 @@ func (s Service) getMe(c *gin.Context) {
 	}
 
 	row := s.DB.QueryRow(
-		`SELECT id, username, phone_number, COALESCE(profile_pic, '') AS profile_pic, created_at
+		`SELECT id, username, email, COALESCE(profile_pic, '') AS profile_pic, created_at
 		FROM users WHERE id=?`, uid,
 	)
 
 	var id int64
-	var username, phone, pic string
+	var username, email, pic string
 	var created time.Time
 
-	if err := row.Scan(&id, &username, &phone, &pic, &created); err != nil {
+	if err := row.Scan(&id, &username, &email, &pic, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			httpx.Err(c, http.StatusNotFound, "user not found")
 		} else {
@@ -61,7 +61,7 @@ func (s Service) getMe(c *gin.Context) {
 		"success":         true,
 		"id":              id,
 		"username":        username,
-		"phone_number":    phone,
+		"email":           email,
 		"profile_picture": pic,
 		"created_at":      created,
 	})

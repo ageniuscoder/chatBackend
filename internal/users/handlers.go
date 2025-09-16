@@ -22,30 +22,31 @@ type Service struct {
 	OTP       otp.Service
 }
 
+// ✅ Updated to use email
 type signupInitReq struct {
 	Username string `json:"username" binding:"required"`
-	Phone    string `json:"phone" binding:"required"`
+	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required"`
 }
 
 type signupVerifyReq struct {
 	Username string `json:"username" binding:"required"`
-	Phone    string `json:"phone" binding:"required"`
-	Password string `json:"password" binding:"required"` // send again on verify
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required"`
 	OTP      string `json:"otp" binding:"required"`
 }
 
 type loginReq struct {
-	Username string `json:"username" binding:"required" `
+	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required"`
 }
 
 type forgotInitReq struct {
-	Phone string `json:"phone" binding:"required"`
+	Email string `json:"email" binding:"required,email"`
 }
 
 type forgotCompleteReq struct {
-	Phone       string `json:"phone" binding:"required"`
+	Email       string `json:"email" binding:"required,email"`
 	OTP         string `json:"otp" binding:"required"`
 	NewPassword string `json:"new_password" binding:"required"`
 }
@@ -56,22 +57,20 @@ func RegisterPublic(rg *gin.RouterGroup, db *sql.DB, cfg config.Config) {
 		JWTSecret: cfg.JWTSecret,
 		JWTTTLMin: cfg.JWTTTLMin,
 		OTP: otp.Service{
-			DB:          db,
-			Digits:      cfg.OTPDigits,
-			TTL:         time.Duration(cfg.OTPTTLSec) * time.Second,
-			TwilioSID:   cfg.TwilioSID,
-			TwilioToken: cfg.TwilioToken,
-			TwilioFrom:  cfg.TwilioFrom,
+			DB:             db,
+			Digits:         cfg.OTPDigits,
+			TTL:            time.Duration(cfg.OTPTTLSec) * time.Second,
+			SendGridAPIKey: cfg.SendGridAPIKey,
+			SendGridFrom:   cfg.SendGridFrom,
 		},
 	}
 
 	rg.POST("/signup/initiate", s.signupInitiate)
 	rg.POST("/signup/verify", s.signupVerify)
 	rg.POST("/login", s.login)
-	// New logout endpoint
 	rg.POST("/logout", s.logout)
 	rg.POST("/forgot/initiate", s.forgotInitiate)
-	rg.POST("/forgot/reset", s.forgotComplete) // New combined endpoint
+	rg.POST("/forgot/reset", s.forgotComplete)
 }
 
 func (s Service) signupInitiate(c *gin.Context) {
@@ -84,23 +83,16 @@ func (s Service) signupInitiate(c *gin.Context) {
 		httpx.Err(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	// 🔑 Normalize phone
-	normalized, err := utils.NormalizePhone(req.Phone, "IN") // default India
-	if err != nil {
-		httpx.Err(c, http.StatusBadRequest, "Invalid phone number")
-		return
-	}
-	req.Phone = normalized
 
 	var count int
-	_ = s.DB.QueryRow(`SELECT COUNT(1) FROM users WHERE username=? OR phone_number=?`, req.Username, req.Phone).Scan(&count)
+	_ = s.DB.QueryRow(`SELECT COUNT(1) FROM users WHERE username=? OR email=?`, req.Username, req.Email).Scan(&count)
 
 	if count > 0 {
-		httpx.Err(c, http.StatusConflict, "Username or Phone Already Exists")
+		httpx.Err(c, http.StatusConflict, "Username or Email Already Exists")
 		return
 	}
 
-	if _, err := s.OTP.Genrate(req.Phone, "signup"); err != nil {
+	if _, err := s.OTP.Genrate(req.Email, "signup"); err != nil {
 		fmt.Println("otp generation error:", err)
 		httpx.Err(c, http.StatusInternalServerError, "Otp Sent Failed")
 		return
@@ -120,21 +112,13 @@ func (s Service) signupVerify(c *gin.Context) {
 		return
 	}
 
-	// ADD THIS LINE
-	normalized, err := utils.NormalizePhone(req.Phone, "IN") //for normalizing phone number
-	if err != nil {
-		httpx.Err(c, http.StatusBadRequest, "Invalid phone number")
-		return
-	}
-	req.Phone = normalized
-
-	ok, err := s.OTP.Verify(req.Phone, "signup", req.OTP)
+	ok, err := s.OTP.Verify(req.Email, "signup", req.OTP)
 	if err != nil || !ok {
 		httpx.Err(c, 422, "Invalid Otp")
 		return
 	}
 	hash, _ := auth.HashPassword(req.Password)
-	res, err := s.DB.Exec(`INSERT INTO users (username, phone_number, password_hash) VALUES (?, ?, ?)`, req.Username, req.Phone, hash)
+	res, err := s.DB.Exec(`INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)`, req.Username, req.Email, hash)
 	if err != nil {
 		httpx.Err(c, 400, "Create User Failed")
 		return
@@ -144,7 +128,7 @@ func (s Service) signupVerify(c *gin.Context) {
 
 	tok, err := auth.NewToken(s.JWTSecret, uid, s.JWTTTLMin)
 	if err != nil {
-		httpx.Err(c, http.StatusInternalServerError, "Token Genration Failed")
+		httpx.Err(c, http.StatusInternalServerError, "Token Generation Failed")
 		return
 	}
 	c.SetCookie("token", tok, s.JWTTTLMin*60, "/", "", true, true)
@@ -182,7 +166,6 @@ func (s Service) login(c *gin.Context) {
 }
 
 func (s Service) logout(c *gin.Context) {
-	// Set the cookie to expire immediately by using a past date
 	c.SetCookie("token", "", -1, "/", "", true, true)
 	httpx.OK(c, gin.H{"success": true, "message": "Logged out successfully"})
 }
@@ -198,14 +181,7 @@ func (s Service) forgotInitiate(c *gin.Context) {
 		return
 	}
 
-	normalized, err := utils.NormalizePhone(req.Phone, "IN")
-	if err != nil {
-		httpx.Err(c, http.StatusBadRequest, "Invalid phone number")
-		return
-	}
-	req.Phone = normalized
-
-	if _, err := s.OTP.Genrate(req.Phone, "reset"); err != nil {
+	if _, err := s.OTP.Genrate(req.Email, "reset"); err != nil {
 		httpx.Err(c, http.StatusInternalServerError, "Otp Sent Failed")
 		return
 	}
@@ -225,22 +201,15 @@ func (s Service) forgotComplete(c *gin.Context) {
 		return
 	}
 
-	// ADD THIS LINE
-	normalized, err := utils.NormalizePhone(req.Phone, "IN") //for normalizing phone number
-	if err != nil {
-		httpx.Err(c, http.StatusBadRequest, "Invalid phone number")
-		return
-	}
-	req.Phone = normalized
-	// Verify OTP and update password in one atomic step
-	ok, err := s.OTP.Verify(req.Phone, "reset", req.OTP)
+	// Verify OTP and update password
+	ok, err := s.OTP.Verify(req.Email, "reset", req.OTP)
 	if err != nil || !ok {
 		httpx.Err(c, http.StatusUnprocessableEntity, "Invalid Otp")
 		return
 	}
 
 	hash, _ := auth.HashPassword(req.NewPassword)
-	_, err = s.DB.Exec(`UPDATE users SET password_hash=? WHERE phone_number=?`, hash, req.Phone)
+	_, err = s.DB.Exec(`UPDATE users SET password_hash=? WHERE email=?`, hash, req.Email)
 	if err != nil {
 		httpx.Err(c, http.StatusInternalServerError, "Update Password Failed")
 		return

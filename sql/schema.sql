@@ -4,7 +4,7 @@ PRAGMA foreign_keys=ON;
 CREATE TABLE IF NOT EXISTS users(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
-    phone_number TEXT NOT NULL UNIQUE,
+    email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     profile_pic TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS users(
 -- OTP CODES
 CREATE TABLE IF NOT EXISTS otp_codes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    phone_number TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE,
     code TEXT NOT NULL,
     purpose TEXT NOT NULL CHECK (purpose IN ('signup','reset')),
     expires_at TIMESTAMP NOT NULL,

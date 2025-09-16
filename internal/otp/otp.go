@@ -7,8 +7,8 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/twilio/twilio-go"
-	openapi "github.com/twilio/twilio-go/rest/api/v2010"
+	"github.com/sendgrid/sendgrid-go"
+	"github.com/sendgrid/sendgrid-go/helpers/mail"
 )
 
 // Store is the interface for our database operations.
@@ -19,15 +19,16 @@ type Store interface {
 	Begin() (*sql.Tx, error)
 }
 
+// Service holds OTP configuration and SendGrid client details.
 type Service struct {
-	DB          Store
-	Digits      int
-	TTL         time.Duration
-	TwilioSID   string
-	TwilioToken string
-	TwilioFrom  string // your Twilio phone number
+	DB             Store
+	Digits         int
+	TTL            time.Duration
+	SendGridAPIKey string
+	SendGridFrom   string // verified sender email
 }
 
+// randomDigit generates a secure random n-digit string.
 func randomDigit(n int) (string, error) {
 	res := make([]byte, n)
 	for i := 0; i < n; i++ {
@@ -40,7 +41,8 @@ func randomDigit(n int) (string, error) {
 	return string(res), nil
 }
 
-func (s *Service) Genrate(phone, purpose string) (string, error) {
+// Genrate creates and stores an OTP, then sends it via email using SendGrid.
+func (s *Service) Genrate(email, purpose string) (string, error) {
 	code, err := randomDigit(s.Digits)
 	if err != nil {
 		return "", err
@@ -48,35 +50,35 @@ func (s *Service) Genrate(phone, purpose string) (string, error) {
 
 	expiresAt := time.Now().UTC().Add(s.TTL)
 
+	// Store OTP in DB
 	_, err = s.DB.Exec(
-		`INSERT INTO otp_codes (phone_number, code, purpose, expires_at)
+		`INSERT INTO otp_codes (email, code, purpose, expires_at)
          VALUES (?, ?, ?, ?)`,
-		phone, code, purpose, expiresAt,
+		email, code, purpose, expiresAt,
 	)
 	if err != nil {
 		return "", err
 	}
 
-	// ✅ Send OTP via Twilio SMS //stub sender
-	client := twilio.NewRestClientWithParams(twilio.ClientParams{
-		Username: s.TwilioSID,
-		Password: s.TwilioToken,
-	})
+	// Send OTP via SendGrid
+	from := mail.NewEmail("MmChat OTP Service", s.SendGridFrom)
+	to := mail.NewEmail("User", email)
+	subject := "Your OTP Code"
+	plainText := fmt.Sprintf("Your OTP for %s in MmChat is: %s (valid for %d minutes)", purpose, code, int(s.TTL.Minutes()))
+	htmlContent := fmt.Sprintf("<p>Your OTP for <b>%s</b> in MmChat is:</p><h2>%s</h2><p>Valid for %d minutes.</p>", purpose, code, int(s.TTL.Minutes()))
 
-	params := &openapi.CreateMessageParams{}
-	params.SetTo(phone)          // user's phone number
-	params.SetFrom(s.TwilioFrom) // your Twilio number
-	params.SetBody(fmt.Sprintf("Your verification code for %s for MmChat : %s", purpose, code))
-
-	_, err = client.Api.CreateMessage(params)
+	message := mail.NewSingleEmail(from, subject, to, plainText, htmlContent)
+	client := sendgrid.NewSendClient(s.SendGridAPIKey)
+	_, err = client.Send(message)
 	if err != nil {
-		return "", fmt.Errorf("failed to send SMS: %w", err)
+		return "", fmt.Errorf("failed to send OTP email: %w", err)
 	}
 
 	return code, nil
 }
 
-func (s *Service) Verify(phone, purpose, code string) (bool, error) {
+// Verify checks if the OTP is valid and not expired.
+func (s *Service) Verify(email, purpose, code string) (bool, error) {
 	// Begin a new transaction
 	tx, err := s.DB.Begin()
 	if err != nil {
@@ -91,9 +93,9 @@ func (s *Service) Verify(phone, purpose, code string) (bool, error) {
 	var n int
 	row := tx.QueryRow(
 		`SELECT COUNT(1) FROM otp_codes             
-         WHERE phone_number=? AND purpose=? AND code=? 
+         WHERE email=? AND purpose=? AND code=? 
            AND expires_at > CURRENT_TIMESTAMP`,
-		phone, purpose, code,
+		email, purpose, code,
 	)
 
 	if err := row.Scan(&n); err != nil {
@@ -104,8 +106,8 @@ func (s *Service) Verify(phone, purpose, code string) (bool, error) {
 		// Delete the OTP after successful verification.
 		_, err := tx.Exec(
 			`DELETE FROM otp_codes 
-             WHERE phone_number=? AND purpose=? AND code=?`,
-			phone, purpose, code,
+             WHERE email=? AND purpose=? AND code=?`,
+			email, purpose, code,
 		)
 		if err != nil {
 			return false, err
