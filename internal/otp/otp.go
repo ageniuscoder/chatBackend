@@ -60,6 +60,7 @@ func (s *Service) Genrate(email, purpose string) (string, error) {
 		return "", err
 	}
 
+	fmt.Println("OTP code generated and stored:", code) // Debug log
 	// Send OTP via SendGrid
 	from := mail.NewEmail("MmChat OTP Service", s.SendGridFrom)
 	to := mail.NewEmail("User", email)
