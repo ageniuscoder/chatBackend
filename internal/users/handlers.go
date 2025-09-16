@@ -131,7 +131,17 @@ func (s Service) signupVerify(c *gin.Context) {
 		httpx.Err(c, http.StatusInternalServerError, "Token Generation Failed")
 		return
 	}
-	c.SetCookie("token", tok, s.JWTTTLMin*60, "/", "", true, true)
+
+	// IMPORTANT: Use http.SetCookie to set SameSite=None for cross-origin requests
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "token",
+		Value:    tok,
+		MaxAge:   s.JWTTTLMin * 60,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
+	})
 
 	httpx.OK(c, gin.H{"success": true, "user_id": uid})
 }
@@ -161,12 +171,32 @@ func (s Service) login(c *gin.Context) {
 		return
 	}
 	tok, _ := auth.NewToken(s.JWTSecret, id, s.JWTTTLMin)
-	c.SetCookie("token", tok, s.JWTTTLMin*60, "/", "", true, true)
+
+	// IMPORTANT: Use http.SetCookie to set SameSite=None for cross-origin requests
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "token",
+		Value:    tok,
+		MaxAge:   s.JWTTTLMin * 60,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
+	})
+
 	httpx.OK(c, gin.H{"success": true, "user_id": id})
 }
 
 func (s Service) logout(c *gin.Context) {
-	c.SetCookie("token", "", -1, "/", "", true, true)
+	// Correctly clear the cookie with SameSite=None
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     "token",
+		Value:    "",
+		MaxAge:   -1,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteNoneMode,
+	})
 	httpx.OK(c, gin.H{"success": true, "message": "Logged out successfully"})
 }
 
