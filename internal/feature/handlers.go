@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/ageniuscoder/mmchat/backend/internal/httpx"
-	"github.com/ageniuscoder/mmchat/backend/internal/utils"
 	"github.com/gin-gonic/gin"
 )
 
@@ -32,7 +31,7 @@ func (s *Service) searchUsers(c *gin.Context) {
 		return
 	}
 
-	rows, err := s.DB.Query("SELECT id, username, profile_pic FROM users WHERE username LIKE ? LIMIT 10", "%"+query+"%")
+	rows, err := s.DB.Query("SELECT id, username, profile_pic FROM users WHERE username LIKE $1 LIMIT 10", "%"+query+"%")
 	if err != nil {
 		httpx.Err(c, http.StatusInternalServerError, "database query failed")
 		return
@@ -67,8 +66,8 @@ func (s Service) getLastSeen(c *gin.Context) {
 		return
 	}
 
-	row := s.DB.QueryRow(`SELECT last_active FROM users WHERE id=?`, userID)
-	var lastActive sql.NullString
+	row := s.DB.QueryRow(`SELECT last_active FROM users WHERE id=$1`, userID)
+	var lastActive sql.NullTime
 	if err := row.Scan(&lastActive); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			httpx.Err(c, http.StatusNotFound, "user not found")
@@ -79,5 +78,5 @@ func (s Service) getLastSeen(c *gin.Context) {
 		return
 	}
 
-	httpx.OK(c, gin.H{"success": true, "last_seen": utils.ParseTime(lastActive.String).UTC().Format(time.RFC3339)})
+	httpx.OK(c, gin.H{"success": true, "last_seen": lastActive.Time.UTC().Format(time.RFC3339)})
 }

@@ -63,9 +63,9 @@ func (s *Service) createOrGetPrivate(c *gin.Context) {
 
 	// find existing conversation
 	row := s.DB.QueryRow(`SELECT c.id FROM conversations c
-		JOIN participants p1 ON p1.conversation_id=c.id AND p1.user_id=?
-		JOIN participants p2 ON p2.conversation_id=c.id AND p2.user_id=?
-		WHERE c.is_group_chat=0 LIMIT 1`, uid, req.OtherUserId)
+		JOIN participants p1 ON p1.conversation_id=c.id AND p1.user_id=$1
+		JOIN participants p2 ON p2.conversation_id=c.id AND p2.user_id=$2
+		WHERE c.is_group_chat=FALSE LIMIT 1`, uid, req.OtherUserId)
 
 	var id int64
 	if err := row.Scan(&id); err == nil {
@@ -82,17 +82,17 @@ func (s *Service) createOrGetPrivate(c *gin.Context) {
 	defer tx.Rollback() // ensures cleanup on error
 
 	// create conversation
-	res, err := tx.Exec(`INSERT INTO conversations (name, is_group_chat) VALUES (NULL, 0)`)
+	var conversationID int64
+	err = tx.QueryRow(`INSERT INTO conversations (name, is_group_chat) VALUES (NULL, FALSE) RETURNING id`).Scan(&conversationID)
 	if err != nil {
 		httpx.Err(c, 400, "create conversation failed")
 		fmt.Println("Insert conversation error:", err)
 		return
 	}
-	id, _ = res.LastInsertId()
 
 	// add participants (this will fail if user doesn't exist because of FK)
-	_, err = tx.Exec(`INSERT INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 0), (?, ?, 0)`,
-		id, uid, id, req.OtherUserId)
+	_, err = tx.Exec(`INSERT INTO participants (conversation_id, user_id, is_admin) VALUES ($1, $2, FALSE), ($3, $4, FALSE)`,
+		conversationID, uid, conversationID, req.OtherUserId)
 	if err != nil {
 		fmt.Println("Insert participants error:", err)
 		httpx.Err(c, 400, "invalid user id")
@@ -104,9 +104,9 @@ func (s *Service) createOrGetPrivate(c *gin.Context) {
 		httpx.Err(c, 500, "commit failed")
 		return
 	}
-	s.Hub.BroadcastConversationUpdate(id, "new_conversation") // Notify participants of new conversation
+	s.Hub.BroadcastConversationUpdate(conversationID, "new_conversation") // Notify participants of new conversation
 
-	httpx.OK(c, gin.H{"success": true, "conversation_id": id, "is_group": false})
+	httpx.OK(c, gin.H{"success": true, "conversation_id": conversationID, "is_group": false})
 }
 
 func (s *Service) createGroup(c *gin.Context) {
@@ -131,15 +131,15 @@ func (s *Service) createGroup(c *gin.Context) {
 	defer tx.Rollback()
 
 	// create conversation
-	res, err := tx.Exec(`INSERT INTO conversations (name, is_group_chat) VALUES (?, 1)`, req.Name)
+	var cid int64
+	err = tx.QueryRow(`INSERT INTO conversations (name, is_group_chat) VALUES ($1, TRUE) RETURNING id`, req.Name).Scan(&cid)
 	if err != nil {
 		httpx.Err(c, 400, "create group failed")
 		return
 	}
-	cid, _ := res.LastInsertId()
 
 	// insert creator as admin
-	_, err = tx.Exec(`INSERT INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 1)`, cid, uid)
+	_, err = tx.Exec(`INSERT INTO participants (conversation_id, user_id, is_admin) VALUES ($1, $2, TRUE)`, cid, uid)
 	if err != nil {
 		httpx.Err(c, 400, "add creator failed")
 		return
@@ -154,7 +154,7 @@ func (s *Service) createGroup(c *gin.Context) {
 		}
 
 		var exists bool
-		err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id=?)", mid).Scan(&exists)
+		err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)", mid).Scan(&exists)
 		if err != nil {
 			httpx.Err(c, 500, "db error")
 			return
@@ -163,7 +163,7 @@ func (s *Service) createGroup(c *gin.Context) {
 			continue // skip invalid user
 		}
 
-		_, err = tx.Exec(`INSERT INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 0)`, cid, mid)
+		_, err = tx.Exec(`INSERT INTO participants (conversation_id, user_id, is_admin) VALUES ($1, $2, FALSE) ON CONFLICT DO NOTHING`, cid, mid)
 		if err != nil {
 			httpx.Err(c, 400, "add member failed")
 			return
@@ -183,7 +183,7 @@ func (s *Service) createGroup(c *gin.Context) {
 		return
 	}
 	var username string
-	_ = s.DB.QueryRow(`SELECT username FROM users WHERE id=?`, uid).Scan(&username)
+	_ = s.DB.QueryRow(`SELECT username FROM users WHERE id=$1`, uid).Scan(&username)
 
 	s.Hub.BroadcastSystemMessage(cid, fmt.Sprintf("Group '%s' created by %s", req.Name, username))
 
@@ -199,7 +199,7 @@ func (s Service) addParticipant(c *gin.Context) {
 
 	//ensure uid is admin
 	var n int
-	_ = s.DB.QueryRow(`SELECT COUNT(1) FROM participants WHERE conversation_id=? AND user_id=? AND is_admin=1`, cid, uid).Scan(&n)
+	_ = s.DB.QueryRow(`SELECT COUNT(1) FROM participants WHERE conversation_id=$1 AND user_id=$2 AND is_admin=TRUE`, cid, uid).Scan(&n)
 	if n == 0 {
 		httpx.Err(c, http.StatusForbidden, "only admin can add participants")
 		return
@@ -215,9 +215,9 @@ func (s Service) addParticipant(c *gin.Context) {
 		return
 	}
 
-	_, err := s.DB.Exec(`INSERT OR IGNORE INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 0)`, cid, req.UserID)
+	_, err := s.DB.Exec(`INSERT INTO participants (conversation_id, user_id, is_admin) VALUES ($1, $2, FALSE) ON CONFLICT DO NOTHING`, cid, req.UserID)
 	var removedUsername string
-	_ = s.DB.QueryRow(`SELECT username FROM users WHERE id=?`, req.UserID).Scan(&removedUsername)
+	_ = s.DB.QueryRow(`SELECT username FROM users WHERE id=$1`, req.UserID).Scan(&removedUsername)
 	if err != nil {
 		httpx.Err(c, 400, "add failed")
 		return
@@ -233,7 +233,7 @@ func (s Service) removeParticipant(c *gin.Context) {
 	ncid, _ := strconv.ParseInt(cid, 10, 64)
 
 	var isAdmin bool
-	_ = s.DB.QueryRow(`SELECT is_admin FROM participants WHERE conversation_id=? AND user_id=?`, cid, uid).Scan(&isAdmin)
+	_ = s.DB.QueryRow(`SELECT is_admin FROM participants WHERE conversation_id=$1 AND user_id=$2`, cid, uid).Scan(&isAdmin)
 	if !isAdmin {
 		httpx.Err(c, http.StatusForbidden, "only admin can remove participants")
 		return
@@ -247,10 +247,10 @@ func (s Service) removeParticipant(c *gin.Context) {
 
 	// Get the removed user's username
 	var removedUsername string
-	_ = s.DB.QueryRow(`SELECT username FROM users WHERE id=?`, removedUserId).Scan(&removedUsername)
+	_ = s.DB.QueryRow(`SELECT username FROM users WHERE id=$1`, removedUserId).Scan(&removedUsername)
 
 	// Delete the participant
-	_, err := s.DB.Exec(`DELETE FROM participants WHERE conversation_id=? AND user_id=?`, cid, removedUserId)
+	_, err := s.DB.Exec(`DELETE FROM participants WHERE conversation_id=$1 AND user_id=$2`, cid, removedUserId)
 	if err != nil {
 		httpx.Err(c, 400, "remove failed")
 		return
@@ -274,28 +274,28 @@ func (s Service) listMine(c *gin.Context) {
 			c.name,
 			c.is_group_chat,
 			c.created_at,
-			CASE WHEN c.is_group_chat = 0 THEN other_user.username ELSE c.name END as display_name,
-			CASE WHEN c.is_group_chat = 0 THEN other_user.profile_pic ELSE NULL END as avatar,
-			CASE WHEN c.is_group_chat = 0 THEN other_user.last_active ELSE NULL END as last_active,
-			CASE WHEN c.is_group_chat = 0 THEN other_user.id ELSE NULL END as other_user_id,
+			CASE WHEN c.is_group_chat = FALSE THEN other_user.username ELSE c.name END as display_name,
+			CASE WHEN c.is_group_chat = FALSE THEN other_user.profile_pic ELSE NULL END as avatar,
+			CASE WHEN c.is_group_chat = FALSE THEN other_user.last_active ELSE NULL END as last_active,
+			CASE WHEN c.is_group_chat = FALSE THEN other_user.id ELSE NULL END as other_user_id,
 			(SELECT COUNT(1) FROM participants WHERE conversation_id = c.id) AS participant_count,
 			(SELECT m.content FROM messages m WHERE m.conversation_id = c.id ORDER BY m.sent_at DESC LIMIT 1) AS last_message,
 			(SELECT m.sent_at FROM messages m WHERE m.conversation_id = c.id ORDER BY m.sent_at DESC LIMIT 1) AS last_message_at,
 			COALESCE((
 				SELECT COUNT(m.id)
 				FROM messages m
-				LEFT JOIN message_status ms ON m.id = ms.message_id AND ms.user_id = ?
+				LEFT JOIN message_status ms ON m.id = ms.message_id AND ms.user_id = $1
 				WHERE m.conversation_id = c.id
-				AND m.sender_id != ?
+				AND m.sender_id != $2
 				AND ms.status IS NULL
 			), 0) AS unread_count
 		FROM conversations c
 		JOIN participants p1 ON p1.conversation_id = c.id
-		LEFT JOIN participants p2 ON c.is_group_chat = 0 AND p2.conversation_id = c.id AND p2.user_id != p1.user_id
+		LEFT JOIN participants p2 ON c.is_group_chat = FALSE AND p2.conversation_id = c.id AND p2.user_id != p1.user_id
 		LEFT JOIN users other_user ON p2.user_id = other_user.id
-		WHERE p1.user_id = ?
-		GROUP BY c.id
-		ORDER BY last_message_at DESC, c.created_at DESC`, uid, uid, uid)
+		WHERE p1.user_id = $3
+		GROUP BY c.id, c.name, c.is_group_chat, c.created_at, display_name, avatar, last_active, other_user_id
+		ORDER BY last_message_at DESC NULLS LAST, c.created_at DESC`, uid, uid, uid)
 	if err != nil {
 		httpx.Err(c, http.StatusInternalServerError, "failed to fetch conversations")
 		return
@@ -309,14 +309,14 @@ func (s Service) listMine(c *gin.Context) {
 			id               int64
 			name             sql.NullString
 			isg              bool
-			ca               string
+			ca               time.Time // Use time.Time directly for PostgreSQL TIMESTAMP WITH TIME ZONE
 			displayName      sql.NullString
 			avatar           sql.NullString
-			lastActive       sql.NullString
+			lastActive       sql.NullTime
 			otherUserId      sql.NullInt64
 			participantCount int64
 			lastMessage      sql.NullString
-			lastMessageAt    sql.NullString
+			lastMessageAt    sql.NullTime
 			unreadCount      int64
 		)
 
@@ -328,8 +328,7 @@ func (s Service) listMine(c *gin.Context) {
 		// Online check
 		isOnline := false
 		if lastActive.Valid {
-			t := utils.ParseTime(lastActive.String)
-			if !t.IsZero() && time.Since(t) < time.Minute {
+			if time.Since(lastActive.Time) < time.Minute {
 				isOnline = true
 			}
 		}
@@ -349,26 +348,19 @@ func (s Service) listMine(c *gin.Context) {
 			conversation["other_user_id"] = otherUserId.Int64
 		}
 
-		// FIX: Add this block to include the last_active timestamp in the response
+		// Add last_active timestamp
 		if lastActive.Valid {
-			t := utils.ParseTime(lastActive.String)
-			if !t.IsZero() {
-				conversation["last_seen"] = t.UTC().Format(time.RFC3339)
-			}
+			conversation["last_seen"] = lastActive.Time.UTC().Format(time.RFC3339)
 		}
 
-		// Created_at (safe parse)
-		if t := utils.ParseTime(ca); !t.IsZero() {
-			conversation["created_at"] = t.UTC().Format(time.RFC3339)
-		}
+		// Created_at
+		conversation["created_at"] = ca.UTC().Format(time.RFC3339)
 
 		// Last message (safe parse)
 		if lastMessage.Valid && lastMessageAt.Valid {
-			if t := utils.ParseTime(lastMessageAt.String); !t.IsZero() {
-				conversation["last_message"] = gin.H{
-					"content":    lastMessage.String,
-					"created_at": t.UTC().Format(time.RFC3339),
-				}
+			conversation["last_message"] = gin.H{
+				"content":    lastMessage.String,
+				"created_at": lastMessageAt.Time.UTC().Format(time.RFC3339),
 			}
 		}
 
@@ -389,7 +381,7 @@ func (s *Service) listParticipants(c *gin.Context) {
 	uid := auth.MustUserID(c)
 	cid := c.Param("id")
 	var isParticipant bool
-	_ = s.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM participants WHERE conversation_id=? AND user_id=?)`, cid, uid).Scan(&isParticipant)
+	_ = s.DB.QueryRow(`SELECT EXISTS(SELECT 1 FROM participants WHERE conversation_id=$1 AND user_id=$2)`, cid, uid).Scan(&isParticipant)
 	if !isParticipant {
 		httpx.Err(c, http.StatusForbidden, "not a member of this group")
 		return
@@ -399,7 +391,7 @@ func (s *Service) listParticipants(c *gin.Context) {
 		SELECT u.id, u.username, u.profile_pic, p.is_admin
 		FROM participants p
 		JOIN users u ON p.user_id = u.id
-		WHERE p.conversation_id=?`, cid)
+		WHERE p.conversation_id=$1`, cid)
 	if err != nil {
 		httpx.Err(c, http.StatusInternalServerError, "database error")
 		return

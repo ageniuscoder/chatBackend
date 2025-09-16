@@ -31,7 +31,7 @@ func (h *Hub) Run() {
 		select {
 		case client := <-h.register:
 			//mark user online
-			h.DB.Exec(`UPDATE users SET last_active=CURRENT_TIMESTAMP WHERE id=?`, client.UserID)
+			h.DB.Exec(`UPDATE users SET last_active=NOW() WHERE id=$1`, client.UserID)
 			if h.clients[client.UserID] == nil {
 				h.clients[client.UserID] = make(map[*Client]bool)
 			}
@@ -47,7 +47,7 @@ func (h *Hub) Run() {
 					if len(set) == 0 {
 						delete(h.clients, client.UserID)
 						// Mark last_active and broadcast offline
-						h.DB.Exec(`UPDATE users SET last_active=CURRENT_TIMESTAMP WHERE id=?`, client.UserID)
+						h.DB.Exec(`UPDATE users SET last_active=NOW() WHERE id=$1`, client.UserID)
 						h.BroadcastPresence(client.UserID, "offline")
 					}
 				}
@@ -59,7 +59,7 @@ func (h *Hub) Run() {
 // BroadcastMessage sends a JSON payload to all participants of a conversation.
 func (h *Hub) BroadcastMessage(conversationID, senderID, messageID int64, content string) {
 	// Fetch all participants (single query)
-	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=? AND user_id!=?`, conversationID, senderID)
+	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=$1 AND user_id!=$2`, conversationID, senderID)
 	if err != nil {
 		log.Printf("[hub] failed to fetch participants for conversation %d: %v", conversationID, err)
 		return
@@ -68,14 +68,14 @@ func (h *Hub) BroadcastMessage(conversationID, senderID, messageID int64, conten
 
 	// Fetch sender username
 	var senderUsername string
-	if err := h.DB.QueryRow(`SELECT username FROM users WHERE id=?`, senderID).Scan(&senderUsername); err != nil {
+	if err := h.DB.QueryRow(`SELECT username FROM users WHERE id=$1`, senderID).Scan(&senderUsername); err != nil {
 		log.Printf("[hub] failed to fetch sender username for %d: %v", senderID, err)
 		senderUsername = "unknown"
 	}
 
 	// Fetch sent_at timestamp
 	var sentAt time.Time
-	if err := h.DB.QueryRow(`SELECT sent_at FROM messages WHERE id=?`, messageID).Scan(&sentAt); err != nil {
+	if err := h.DB.QueryRow(`SELECT sent_at FROM messages WHERE id=$1`, messageID).Scan(&sentAt); err != nil {
 		log.Printf("[hub] failed to fetch sent_at for message %d: %v", messageID, err)
 		// Fallback to current time if DB query fails.
 		sentAt = time.Now()
@@ -109,8 +109,8 @@ func (h *Hub) BroadcastMessage(conversationID, senderID, messageID int64, conten
 		// Mark delivered for everyone except sender
 		if uid != senderID {
 			if _, err := h.DB.Exec(
-				`INSERT OR IGNORE INTO message_status (message_id, user_id, status)
-				 VALUES (?, ?, 'delivered')`, messageID, uid); err != nil {
+				`INSERT INTO message_status (message_id, user_id, status)
+				 VALUES ($1, $2, 'delivered') ON CONFLICT (message_id, user_id) DO NOTHING`, messageID, uid); err != nil {
 				log.Printf("[hub] failed to insert message_status for user %d: %v", uid, err)
 			}
 		}
@@ -137,7 +137,7 @@ func (h *Hub) BroadcastMessage(conversationID, senderID, messageID int64, conten
 // New helper: notify participants when someone reads a message
 func (h *Hub) BroadcastReadReceipt(messageID, readerID int64) {
 	var convID int64
-	err := h.DB.QueryRow(`SELECT conversation_id FROM messages WHERE id=?`, messageID).Scan(&convID)
+	err := h.DB.QueryRow(`SELECT conversation_id FROM messages WHERE id=$1`, messageID).Scan(&convID)
 	if err != nil {
 		// could be sql.ErrNoRows or real DB error
 		log.Printf("BroadcastReadReceipt: failed to get conversation_id for message %d: %v", messageID, err)
@@ -156,7 +156,7 @@ func (h *Hub) BroadcastReadReceipt(messageID, readerID int64) {
 		return
 	}
 
-	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=? AND user_id<>?`, convID, readerID)
+	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=$1 AND user_id<>$2`, convID, readerID)
 	if err != nil {
 		log.Printf("BroadcastReadReceipt: failed to query participants for convID %d: %v", convID, err)
 		return
@@ -184,7 +184,7 @@ func (h *Hub) BroadcastReadReceipt(messageID, readerID int64) {
 
 func (h *Hub) BroadcastTyping(convID, userID int64, eventType string) {
 	var username string
-	_ = h.DB.QueryRow(`SELECT username FROM users WHERE id=?`, userID).Scan(&username)
+	_ = h.DB.QueryRow(`SELECT username FROM users WHERE id=$1`, userID).Scan(&username)
 
 	wire := WireMessage{
 		Type:           eventType, // "typing_start" or "typing_stop"
@@ -194,7 +194,7 @@ func (h *Hub) BroadcastTyping(convID, userID int64, eventType string) {
 	}
 	payload, _ := json.Marshal(wire)
 
-	rows, _ := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=? AND user_id<>?`, convID, userID)
+	rows, _ := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=$1 AND user_id<>$2`, convID, userID)
 	defer rows.Close()
 
 	for rows.Next() {
@@ -218,7 +218,7 @@ func (h *Hub) BroadcastPresence(userID int64, status string) {
 	var username string
 	var lastActive time.Time
 	// Fetch username and last_active timestamp in a single query
-	_ = h.DB.QueryRow(`SELECT username, last_active FROM users WHERE id=?`, userID).Scan(&username, &lastActive)
+	_ = h.DB.QueryRow(`SELECT username, last_active FROM users WHERE id=$1`, userID).Scan(&username, &lastActive)
 
 	wire := WireMessage{
 		Type:           "presence",
@@ -234,7 +234,7 @@ func (h *Hub) BroadcastPresence(userID int64, status string) {
         SELECT DISTINCT p2.user_id
         FROM participants p1
         JOIN participants p2 ON p1.conversation_id = p2.conversation_id
-        WHERE p1.user_id = ? AND p2.user_id <> ?`,
+        WHERE p1.user_id = $1 AND p2.user_id <> $2`,
 		userID, userID,
 	)
 	defer rows.Close()
@@ -264,7 +264,7 @@ func (h *Hub) BroadcastConversationUpdate(conversationID int64, updateType strin
 	payload, _ := json.Marshal(wire)
 
 	// Fetch all participants of the conversation
-	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=?`, conversationID)
+	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=$1`, conversationID)
 	if err != nil {
 		log.Printf("[hub] failed to fetch participants for broadcast update: %v", err)
 		return
@@ -311,7 +311,7 @@ func (h *Hub) BroadcastSystemMessage(conversationID int64, content string) {
 	}
 
 	// Fetch all participants (including the one who initiated the removal)
-	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=?`, conversationID)
+	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=$1`, conversationID)
 	if err != nil {
 		log.Printf("[hub] failed to fetch participants for conversation %d: %v", conversationID, err)
 		return

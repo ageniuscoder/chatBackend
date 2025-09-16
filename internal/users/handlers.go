@@ -85,7 +85,7 @@ func (s Service) signupInitiate(c *gin.Context) {
 	}
 
 	var count int
-	_ = s.DB.QueryRow(`SELECT COUNT(1) FROM users WHERE username=? OR email=?`, req.Username, req.Email).Scan(&count)
+	_ = s.DB.QueryRow(`SELECT COUNT(1) FROM users WHERE username=$1 OR email=$2`, req.Username, req.Email).Scan(&count)
 
 	if count > 0 {
 		httpx.Err(c, http.StatusConflict, "Username or Email Already Exists")
@@ -118,13 +118,13 @@ func (s Service) signupVerify(c *gin.Context) {
 		return
 	}
 	hash, _ := auth.HashPassword(req.Password)
-	res, err := s.DB.Exec(`INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)`, req.Username, req.Email, hash)
+
+	var uid int64
+	err = s.DB.QueryRow(`INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3) RETURNING id`, req.Username, req.Email, hash).Scan(&uid)
 	if err != nil {
 		httpx.Err(c, 400, "Create User Failed")
 		return
 	}
-
-	uid, _ := res.LastInsertId()
 
 	tok, err := auth.NewToken(s.JWTSecret, uid, s.JWTTTLMin)
 	if err != nil {
@@ -147,7 +147,7 @@ func (s Service) login(c *gin.Context) {
 		return
 	}
 
-	row := s.DB.QueryRow(`SELECT id, password_hash FROM users WHERE username=?`, req.Username)
+	row := s.DB.QueryRow(`SELECT id, password_hash FROM users WHERE username=$1`, req.Username)
 
 	var id int64
 	var hash string
@@ -209,7 +209,7 @@ func (s Service) forgotComplete(c *gin.Context) {
 	}
 
 	hash, _ := auth.HashPassword(req.NewPassword)
-	_, err = s.DB.Exec(`UPDATE users SET password_hash=? WHERE email=?`, hash, req.Email)
+	_, err = s.DB.Exec(`UPDATE users SET password_hash=$1 WHERE email=$2`, hash, req.Email)
 	if err != nil {
 		httpx.Err(c, http.StatusInternalServerError, "Update Password Failed")
 		return

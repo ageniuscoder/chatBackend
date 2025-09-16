@@ -40,7 +40,7 @@ func (s Service) getMe(c *gin.Context) {
 
 	row := s.DB.QueryRow(
 		`SELECT id, username, email, COALESCE(profile_pic, '') AS profile_pic, created_at
-		FROM users WHERE id=?`, uid,
+		FROM users WHERE id=$1`, uid,
 	)
 
 	var id int64
@@ -80,7 +80,7 @@ func (s Service) updateMe(c *gin.Context) {
 	}
 
 	_, err := s.DB.Exec(
-		`UPDATE users SET username=?, profile_pic=? WHERE id=?`,
+		`UPDATE users SET username=$1, profile_pic=$2 WHERE id=$3`,
 		req.Username, req.ProfilePicture, uid,
 	)
 	if err != nil {

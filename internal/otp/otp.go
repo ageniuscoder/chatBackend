@@ -53,7 +53,7 @@ func (s *Service) Genrate(email, purpose string) (string, error) {
 	// Store OTP in DB
 	_, err = s.DB.Exec(
 		`INSERT INTO otp_codes (email, code, purpose, expires_at)
-         VALUES (?, ?, ?, ?)`,
+         VALUES ($1, $2, $3, $4)`,
 		email, code, purpose, expiresAt,
 	)
 	if err != nil {
@@ -89,13 +89,13 @@ func (s *Service) Verify(email, purpose, code string) (bool, error) {
 	defer tx.Rollback()
 
 	// Cleanup expired codes inside the transaction.
-	_, _ = tx.Exec(`DELETE FROM otp_codes WHERE expires_at <= CURRENT_TIMESTAMP`)
+	_, _ = tx.Exec(`DELETE FROM otp_codes WHERE expires_at <= NOW()`)
 
 	var n int
 	row := tx.QueryRow(
 		`SELECT COUNT(1) FROM otp_codes             
-         WHERE email=? AND purpose=? AND code=? 
-           AND expires_at > CURRENT_TIMESTAMP`,
+         WHERE email=$1 AND purpose=$2 AND code=$3 
+           AND expires_at > NOW()`,
 		email, purpose, code,
 	)
 
@@ -107,7 +107,7 @@ func (s *Service) Verify(email, purpose, code string) (bool, error) {
 		// Delete the OTP after successful verification.
 		_, err := tx.Exec(
 			`DELETE FROM otp_codes 
-             WHERE email=? AND purpose=? AND code=?`,
+             WHERE email=$1 AND purpose=$2 AND code=$3`,
 			email, purpose, code,
 		)
 		if err != nil {

@@ -38,7 +38,7 @@ func (c *Client) readPump() {
 			break
 		}
 		// Update user's last active timestamp
-		c.Hub.DB.Exec(`UPDATE users SET last_active=CURRENT_TIMESTAMP WHERE id=?`, c.UserID)
+		c.Hub.DB.Exec(`UPDATE users SET last_active=CURRENT_TIMESTAMP WHERE id=$1`, c.UserID)
 		// Parse incoming event
 		var incoming struct {
 			Type           string `json:"type"`

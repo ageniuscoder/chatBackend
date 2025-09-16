@@ -13,13 +13,13 @@ type CustomErrorResponse struct {
 	Message string `json:"message"`
 }
 
-// List of common SQLite time formats to try parsing.
-// Adjusted to match your DB format (no timezone, no fractional seconds).
+// List of common PostgreSQL time formats to try parsing.
+// These formats handle timestamps with and without fractional seconds and timezones.
 var timeFormats = []string{
-	"2006-01-02 15:04:05",        // Your DB format (YYYY-MM-DD HH:MM:SS)
+	time.RFC3339,                 // ISO 8601 (standard for PostgreSQL)
+	time.RFC3339Nano,             // ISO 8601 with nanoseconds
 	"2006-01-02 15:04:05.999999", // If fractional seconds ever appear
-	time.RFC3339,                 // ISO 8601 (optional fallback)
-	time.RFC3339Nano,             // ISO 8601 with nanoseconds (optional fallback)
+	"2006-01-02 15:04:05",        // Common format
 }
 
 // ParseTime parses a time string using multiple common formats.

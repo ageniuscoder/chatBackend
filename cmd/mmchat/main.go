@@ -19,7 +19,7 @@ import (
 	"github.com/ageniuscoder/mmchat/backend/internal/feature"
 	"github.com/ageniuscoder/mmchat/backend/internal/messages"
 	"github.com/ageniuscoder/mmchat/backend/internal/profile"
-	"github.com/ageniuscoder/mmchat/backend/internal/storage/sqlite"
+	"github.com/ageniuscoder/mmchat/backend/internal/storage/postgres"
 	"github.com/ageniuscoder/mmchat/backend/internal/users"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -37,7 +37,7 @@ func main() {
 	cfg := config.MustLoad()
 
 	//database handling
-	conn, err := sqlite.New(cfg.SQLITEDsn)
+	conn, err := postgres.New(cfg.PostgresDSN)
 	if err != nil {
 		log.Fatalf("Error loading to database: %v", err)
 	}

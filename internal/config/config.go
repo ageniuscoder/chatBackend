@@ -6,13 +6,12 @@ import (
 )
 
 type Config struct {
-	Addr      string
-	JWTSecret string
-	JWTTTLMin int
-	SQLITEDsn string
-	OTPDigits int
-	OTPTTLSec int
-	// ✅ SendGrid config
+	Addr           string
+	JWTSecret      string
+	JWTTTLMin      int
+	PostgresDSN    string
+	OTPDigits      int
+	OTPTTLSec      int
 	SendGridAPIKey string
 	SendGridFrom   string
 }
@@ -34,7 +33,7 @@ func MustLoad() Config {
 		Addr:           getenv("HTTP_ADDR", ":8080"),
 		JWTSecret:      getenv("JWT_SECRET", ""),
 		JWTTTLMin:      jwtttl,
-		SQLITEDsn:      getenv("SQLITE_DSN", "file:chat.db?_pragma=foreign_keys(ON)"),
+		PostgresDSN:    getenv("POSTGRES_DSN", ""),
 		OTPDigits:      otpdigit,
 		OTPTTLSec:      otpttl,
 		SendGridAPIKey: getenv("SENDGRID_API_KEY", ""),

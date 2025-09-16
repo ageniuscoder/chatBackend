@@ -57,19 +57,19 @@ func (s Service) send(c *gin.Context) {
 
 	// authorize participant
 	var n int
-	_ = s.DB.QueryRow(`SELECT COUNT(1) FROM participants WHERE conversation_id=? AND user_id=?`, req.ConversationID, uid).Scan(&n)
+	_ = s.DB.QueryRow(`SELECT COUNT(1) FROM participants WHERE conversation_id=$1 AND user_id=$2`, req.ConversationID, uid).Scan(&n)
 	if n == 0 {
 		httpx.Err(c, http.StatusForbidden, "not a participant")
 		return
 	}
 
-	res, err := s.DB.Exec(`INSERT INTO messages (conversation_id, sender_id, content) VALUES (?, ?, ?)`,
-		req.ConversationID, uid, req.Content)
+	var mid int64
+	err := s.DB.QueryRow(`INSERT INTO messages (conversation_id, sender_id, content) VALUES ($1, $2, $3) RETURNING id`,
+		req.ConversationID, uid, req.Content).Scan(&mid)
 	if err != nil {
 		httpx.Err(c, 400, "insert failed")
 		return
 	}
-	mid, _ := res.LastInsertId()
 
 	// fanout via hub (includes sender username in payload)
 	s.Hub.BroadcastMessage(req.ConversationID, uid, mid, req.Content)
@@ -89,8 +89,8 @@ func (s Service) list(c *gin.Context) {
 		SELECT m.id, m.sender_id, u.username, m.content, m.sent_at
 		FROM messages m
 		JOIN users u ON m.sender_id = u.id
-		WHERE m.conversation_id=?
-		ORDER BY m.sent_at DESC LIMIT ? OFFSET ?`, cid, q.Limit, q.Offset)
+		WHERE m.conversation_id=$1
+		ORDER BY m.sent_at DESC LIMIT $2 OFFSET $3`, cid, q.Limit, q.Offset)
 	if err != nil {
 		httpx.Err(c, 500, "db error")
 		return
@@ -102,7 +102,7 @@ func (s Service) list(c *gin.Context) {
 	for rows.Next() {
 		var id, sid int64
 		var uname, content string
-		var at sql.NullString // Use sql.NullString to handle potential NULL values
+		var at sql.NullTime // Use sql.NullTime for PostgreSQL
 
 		if err := rows.Scan(&id, &sid, &uname, &content, &at); err != nil {
 			fmt.Printf("list: failed to scan row: %v\n", err)
@@ -111,8 +111,7 @@ func (s Service) list(c *gin.Context) {
 
 		var sentAt string
 		if at.Valid {
-			parsedTime := utils.ParseTime(at.String)
-			sentAt = parsedTime.Format(time.RFC3339)
+			sentAt = at.Time.Format(time.RFC3339)
 		}
 
 		list = append(list, gin.H{
@@ -153,14 +152,14 @@ func (s Service) markRead(c *gin.Context) {
 		// First, check if the current user is a participant of the conversation
 		// to which the message belongs.
 		var conversationID int64
-		err := tx.QueryRow(`SELECT conversation_id FROM messages WHERE id=?`, messageID).Scan(&conversationID)
+		err := tx.QueryRow(`SELECT conversation_id FROM messages WHERE id=$1`, messageID).Scan(&conversationID)
 		if err != nil {
 			fmt.Printf("Failed to get conversation_id for message %d: %v\n", messageID, err)
 			continue
 		}
 
 		var isParticipant bool
-		err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM participants WHERE conversation_id=? AND user_id=?)`, conversationID, uid).Scan(&isParticipant)
+		err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM participants WHERE conversation_id=$1 AND user_id=$2)`, conversationID, uid).Scan(&isParticipant)
 		if err != nil || !isParticipant {
 			fmt.Printf("User %d is not a participant of conversation %d\n", uid, conversationID)
 			continue
@@ -169,8 +168,8 @@ func (s Service) markRead(c *gin.Context) {
 		// Update or Insert the message status.
 		_, err = tx.Exec(`
 			INSERT INTO message_status (message_id, user_id, status, read_at)
-			VALUES (?, ?, 'read', CURRENT_TIMESTAMP)
-			ON CONFLICT(message_id, user_id) DO UPDATE SET status='read', read_at=CURRENT_TIMESTAMP
+			VALUES ($1, $2, 'read', NOW())
+			ON CONFLICT(message_id, user_id) DO UPDATE SET status='read', read_at=NOW()
 		`, messageID, uid)
 		if err != nil {
 			fmt.Printf("Failed to mark message %d as read for user %d: %v\n", messageID, uid, err)
