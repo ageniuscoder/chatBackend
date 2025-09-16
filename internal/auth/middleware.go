@@ -25,7 +25,6 @@ func JWTMiddleware(secret string) gin.HandlerFunc {
 		}
 
 		claims, err := ParseToken(secret, tok)
-		fmt.Println(claims)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid Token"})
 			return

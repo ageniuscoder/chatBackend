@@ -65,8 +65,8 @@ func (s *Service) Genrate(email, purpose string) (string, error) {
 	from := mail.NewEmail("MmChat OTP Service", s.SendGridFrom)
 	to := mail.NewEmail("User", email)
 	subject := "Your OTP Code"
-	plainText := fmt.Sprintf("Your OTP for %s in MmChat is: %s (valid for %d minutes)", purpose, code, int(s.TTL.Minutes()))
-	htmlContent := fmt.Sprintf("<p>Your OTP for <b>%s</b> in MmChat is:</p><h2>%s</h2><p>Valid for %d minutes.</p>", purpose, code, int(s.TTL.Minutes()))
+	plainText := fmt.Sprintf("Your OTP for %s in MmChat is: %s (valid for %d minutes) \n Don,t share it with anyone.", purpose, code, int(s.TTL.Minutes()))
+	htmlContent := fmt.Sprintf("<p>Your OTP for <b>%s</b> in MmChat is:</p><h2>%s</h2><p>Valid for %d minutes.</p><br><p>Don,t share it with anyone.</p>", purpose, code, int(s.TTL.Minutes()))
 
 	message := mail.NewSingleEmail(from, subject, to, plainText, htmlContent)
 	client := sendgrid.NewSendClient(s.SendGridAPIKey)
