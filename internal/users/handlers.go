@@ -225,6 +225,13 @@ func (s Service) forgotComplete(c *gin.Context) {
 		return
 	}
 
+	// ADD THIS LINE
+	normalized, err := utils.NormalizePhone(req.Phone, "IN") //for normalizing phone number
+	if err != nil {
+		httpx.Err(c, http.StatusBadRequest, "Invalid phone number")
+		return
+	}
+	req.Phone = normalized
 	// Verify OTP and update password in one atomic step
 	ok, err := s.OTP.Verify(req.Phone, "reset", req.OTP)
 	if err != nil || !ok {

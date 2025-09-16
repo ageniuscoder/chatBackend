@@ -182,6 +182,10 @@ func (s *Service) createGroup(c *gin.Context) {
 		httpx.Err(c, 500, "commit failed")
 		return
 	}
+	var username string
+	_ = s.DB.QueryRow(`SELECT username FROM users WHERE id=?`, uid).Scan(&username)
+
+	s.Hub.BroadcastSystemMessage(cid, fmt.Sprintf("Group '%s' created by %s", req.Name, username))
 
 	s.Hub.BroadcastConversationUpdate(cid, "new_conversation") // Notify participants of new conversation
 
@@ -212,11 +216,13 @@ func (s Service) addParticipant(c *gin.Context) {
 	}
 
 	_, err := s.DB.Exec(`INSERT OR IGNORE INTO participants (conversation_id, user_id, is_admin) VALUES (?, ?, 0)`, cid, req.UserID)
+	var removedUsername string
+	_ = s.DB.QueryRow(`SELECT username FROM users WHERE id=?`, req.UserID).Scan(&removedUsername)
 	if err != nil {
 		httpx.Err(c, 400, "add failed")
 		return
 	}
-
+	s.Hub.BroadcastSystemMessage(ncid, fmt.Sprintf("%s has been added to the group.", removedUsername))
 	s.Hub.BroadcastConversationUpdate(ncid, "added_to_conversation") // Notify the added user
 	httpx.OK(c, gin.H{"success": true})
 }
@@ -224,22 +230,38 @@ func (s Service) addParticipant(c *gin.Context) {
 func (s Service) removeParticipant(c *gin.Context) {
 	uid := auth.MustUserID(c)
 	cid := c.Param("id")
-	ncid, _ := strconv.ParseInt(cid, 10, 64) // Convert cid to int64
+	ncid, _ := strconv.ParseInt(cid, 10, 64)
 
-	//ensure uid is admin
-	var n int
-	_ = s.DB.QueryRow(`SELECT COUNT(1) FROM participants WHERE conversation_id=? AND user_id=? AND is_admin=1`, cid, uid).Scan(&n)
-	if n == 0 {
+	var isAdmin bool
+	_ = s.DB.QueryRow(`SELECT is_admin FROM participants WHERE conversation_id=? AND user_id=?`, cid, uid).Scan(&isAdmin)
+	if !isAdmin {
 		httpx.Err(c, http.StatusForbidden, "only admin can remove participants")
 		return
 	}
-	//removing
-	_, err := s.DB.Exec(`DELETE FROM participants WHERE conversation_id=? AND user_id=?`, cid, c.Param("userId"))
+
+	removedUserId, _ := strconv.ParseInt(c.Param("userId"), 10, 64)
+	if uid == removedUserId {
+		httpx.Err(c, http.StatusForbidden, "cannot remove yourself")
+		return
+	}
+
+	// Get the removed user's username
+	var removedUsername string
+	_ = s.DB.QueryRow(`SELECT username FROM users WHERE id=?`, removedUserId).Scan(&removedUsername)
+
+	// Delete the participant
+	_, err := s.DB.Exec(`DELETE FROM participants WHERE conversation_id=? AND user_id=?`, cid, removedUserId)
 	if err != nil {
 		httpx.Err(c, 400, "remove failed")
 		return
 	}
-	s.Hub.BroadcastConversationUpdate(ncid, "removed_from_conversation") // Notify the removed user
+
+	// Send the system message to the chat
+	s.Hub.BroadcastSystemMessage(ncid, fmt.Sprintf("%s has been removed from the group.", removedUsername))
+
+	// Notify the removed user
+	s.Hub.BroadcastConversationUpdate(ncid, "removed_from_conversation")
+
 	httpx.OK(c, gin.H{"success": true})
 }
 
