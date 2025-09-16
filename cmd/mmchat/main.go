@@ -22,7 +22,6 @@ import (
 	"github.com/ageniuscoder/mmchat/backend/internal/storage/postgres"
 	"github.com/ageniuscoder/mmchat/backend/internal/users"
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
 )
 
 func main() {
@@ -30,10 +29,10 @@ func main() {
 	migrate := flag.Bool("migrate", false, "run migrations and exits")
 	flag.Parse()
 	//config part
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatalf("Error Loading Env file: %v", err)
-	}
+	// err := godotenv.Load()
+	// if err != nil {
+	// 	log.Fatalf("Error Loading Env file: %v", err)
+	// }
 	cfg := config.MustLoad()
 
 	//database handling
