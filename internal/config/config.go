@@ -33,7 +33,7 @@ func MustLoad() Config {
 		Addr:           getenv("HTTP_ADDR", ":8080"),
 		JWTSecret:      getenv("JWT_SECRET", ""),
 		JWTTTLMin:      jwtttl,
-		PostgresDSN:    getenv("POSTGRES_DSN", ""),
+		PostgresDSN:    getenv("DATABASE_URL", ""),
 		OTPDigits:      otpdigit,
 		OTPTTLSec:      otpttl,
 		SendGridAPIKey: getenv("SENDGRID_API_KEY", ""),
