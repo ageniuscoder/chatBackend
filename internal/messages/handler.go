@@ -78,6 +78,7 @@ func (s Service) send(c *gin.Context) {
 }
 
 func (s Service) list(c *gin.Context) {
+	uid := auth.MustUserID(c)
 	cid := c.Param("id")
 	var q pageReq
 	_ = c.BindQuery(&q)
@@ -86,11 +87,31 @@ func (s Service) list(c *gin.Context) {
 	}
 
 	rows, err := s.DB.Query(`
-		SELECT m.id, m.sender_id, u.username, m.content, m.sent_at
+		SELECT
+			m.id,
+			m.sender_id,
+			u.username,
+			m.content,
+			m.sent_at,
+			CASE
+				WHEN m.sender_id = $1 THEN
+					CASE WHEN EXISTS(
+						SELECT 1 FROM participants p
+						LEFT JOIN message_status ms ON ms.message_id = m.id AND ms.user_id = p.user_id
+						WHERE p.conversation_id = m.conversation_id AND p.user_id != $1 AND ms.status != 'read'
+					) THEN 'sent'
+					ELSE 'read'
+					END
+				ELSE
+					COALESCE(ms_receiver.status, 'delivered')
+			END AS status
 		FROM messages m
 		JOIN users u ON m.sender_id = u.id
-		WHERE m.conversation_id=$1
-		ORDER BY m.sent_at DESC LIMIT $2 OFFSET $3`, cid, q.Limit, q.Offset)
+		LEFT JOIN message_status ms_receiver ON ms_receiver.message_id = m.id AND ms_receiver.user_id = $1
+		WHERE m.conversation_id = $2
+		ORDER BY m.sent_at DESC
+		LIMIT $3 OFFSET $4
+	`, uid, cid, q.Limit, q.Offset)
 	if err != nil {
 		httpx.Err(c, 500, "db error")
 		return
@@ -98,13 +119,12 @@ func (s Service) list(c *gin.Context) {
 	defer rows.Close()
 
 	var list []gin.H
-	// In the list function, replace the `for rows.Next()` loop with this code:
 	for rows.Next() {
 		var id, sid int64
-		var uname, content string
-		var at sql.NullTime // Use sql.NullTime for PostgreSQL
+		var uname, content, status string
+		var at sql.NullTime
 
-		if err := rows.Scan(&id, &sid, &uname, &content, &at); err != nil {
+		if err := rows.Scan(&id, &sid, &uname, &content, &at, &status); err != nil {
 			fmt.Printf("list: failed to scan row: %v\n", err)
 			continue
 		}
@@ -116,7 +136,7 @@ func (s Service) list(c *gin.Context) {
 
 		list = append(list, gin.H{
 			"id": id, "sender_id": sid, "sender_username": uname,
-			"content": content, "sent_at": sentAt,
+			"content": content, "sent_at": sentAt, "status": status,
 		})
 	}
 	httpx.OK(c, gin.H{"messages": list})
