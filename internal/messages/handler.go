@@ -167,25 +167,27 @@ func (s Service) markRead(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	// Use a loop to update each message individually for simplicity and robustness.
 	for _, messageID := range req.MessageIDs {
-		// First, check if the current user is a participant of the conversation
-		// to which the message belongs.
 		var conversationID int64
-		err := tx.QueryRow(`SELECT conversation_id FROM messages WHERE id=$1`, messageID).Scan(&conversationID)
+		var senderID int64
+		var isGroupChat bool
+
+		// Change 1: Check if the current user is a participant and get conversation details.
+		// We get `conversation_id`, `sender_id`, and `is_group_chat` in a single query.
+		err := tx.QueryRow(`
+			SELECT m.conversation_id, m.sender_id, c.is_group_chat
+			FROM messages m
+			JOIN conversations c ON c.id = m.conversation_id
+			JOIN participants p ON p.conversation_id = m.conversation_id
+			WHERE m.id = $1 AND p.user_id = $2
+		`, messageID, uid).Scan(&conversationID, &senderID, &isGroupChat)
+
 		if err != nil {
-			fmt.Printf("Failed to get conversation_id for message %d: %v\n", messageID, err)
+			fmt.Printf("Failed to validate message %d or user %d is not a participant: %v\n", messageID, uid, err)
 			continue
 		}
 
-		var isParticipant bool
-		err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM participants WHERE conversation_id=$1 AND user_id=$2)`, conversationID, uid).Scan(&isParticipant)
-		if err != nil || !isParticipant {
-			fmt.Printf("User %d is not a participant of conversation %d\n", uid, conversationID)
-			continue
-		}
-
-		// Update or Insert the message status.
+		// Update or Insert the message status for the current user.
 		_, err = tx.Exec(`
 			INSERT INTO message_status (message_id, user_id, status, read_at)
 			VALUES ($1, $2, 'read', NOW())
@@ -195,8 +197,32 @@ func (s Service) markRead(c *gin.Context) {
 			fmt.Printf("Failed to mark message %d as read for user %d: %v\n", messageID, uid, err)
 			continue
 		}
-		// Notify other participants via hub
-		s.Hub.BroadcastReadReceipt(messageID, uid)
+
+		// Change 2: Check if this is a group chat.
+		if isGroupChat {
+			// Get the count of participants who have read this message
+			var readCount int64
+			err = tx.QueryRow(`SELECT COUNT(1) FROM message_status WHERE message_id = $1 AND status = 'read'`, messageID).Scan(&readCount)
+			if err != nil {
+				fmt.Printf("Failed to get read count for message %d: %v\n", messageID, err)
+				continue
+			}
+
+			// Get the count of participants in the conversation, excluding the sender
+			var totalParticipants int64
+			err := tx.QueryRow(`SELECT COUNT(1) FROM participants WHERE conversation_id = $1 AND user_id != $2`, conversationID, senderID).Scan(&totalParticipants)
+			if err != nil {
+				fmt.Printf("Failed to get total participants for group %d: %v\n", conversationID, err)
+				continue
+			}
+
+			// Change 3: Broadcast a read receipt ONLY if all other participants have read the message.
+			if readCount == totalParticipants {
+				s.Hub.BroadcastReadReceipt(messageID, uid)
+			}
+		} else { // For a private chat, always notify the sender.
+			s.Hub.BroadcastReadReceipt(messageID, uid)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
