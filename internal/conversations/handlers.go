@@ -287,7 +287,7 @@ func (s Service) listMine(c *gin.Context) {
 				LEFT JOIN message_status ms ON m.id = ms.message_id AND ms.user_id = $1
 				WHERE m.conversation_id = c.id
 				AND m.sender_id != $2
-				AND ms.status IS NULL
+				AND ms.status IS DISTINCT FROM 'read'   --just changed here
 			), 0) AS unread_count
 		FROM conversations c
 		JOIN participants p1 ON p1.conversation_id = c.id
