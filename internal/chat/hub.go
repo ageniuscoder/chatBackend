@@ -376,5 +376,4 @@ func (h *Hub) BroadcastEditedMessage(conversationID, messageID int64, newContent
 	}
 	payload, _ := json.Marshal(&wire)
 	h.BroadcastToConversation(conversationID, payload)
-
 }
