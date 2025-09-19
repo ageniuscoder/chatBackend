@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/ageniuscoder/mmchat/backend/internal/auth"
@@ -33,6 +34,10 @@ type readReq struct {
 	MessageIDs []int64 `json:"message_ids"`
 }
 
+type editReq struct {
+	Content string `json:"content" binding:"required"`
+}
+
 func Register(rg *gin.RouterGroup, db *sql.DB, hub *chat.Hub) {
 	s := Service{
 		DB:  db,
@@ -41,6 +46,7 @@ func Register(rg *gin.RouterGroup, db *sql.DB, hub *chat.Hub) {
 	rg.POST("/messages", s.send)
 	rg.GET("/conversations/:id/messages", s.list)
 	rg.POST("/messages/read", s.markRead)
+	rg.PATCH("/messages/:id", s.edit) //for message edit
 }
 
 func (s Service) send(c *gin.Context) {
@@ -231,4 +237,41 @@ func (s Service) markRead(c *gin.Context) {
 	}
 
 	httpx.OK(c, gin.H{"message": "marked as read"})
+}
+
+func (s Service) edit(c *gin.Context) {
+	uid := auth.MustUserID(c)
+	midStr := c.Param("id")
+	mid, err := strconv.ParseInt(midStr, 10, 64)
+	if err != nil {
+		httpx.Err(c, http.StatusBadRequest, "invalid message id")
+		return
+	}
+	var req editReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		if validationErrors, ok := err.(validator.ValidationErrors); ok {
+			httpx.Err(c, http.StatusBadRequest, utils.ValidationErr(validationErrors))
+			return
+		}
+		httpx.Err(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	var senderId int64
+	var conversationId int64
+	err = s.DB.QueryRow(`SELECT sender_id, conversation_id FROM messages WHERE id=$1`, mid).Scan(&senderId, &conversationId)
+	if err != nil {
+		httpx.Err(c, http.StatusNotFound, "message not found")
+		return
+	}
+	if senderId != uid {
+		httpx.Err(c, http.StatusForbidden, "You can only edit your own messages")
+		return
+	}
+	_, err = s.DB.Exec(`UPDATE messages SET content=$1, edited_at=NOW() WHERE id=$2`, req.Content, mid)
+	if err != nil {
+		httpx.Err(c, http.StatusInternalServerError, "failed to update message")
+		return
+	}
+	s.Hub.BroadcastEditedMessage(conversationId, mid, req.Content)
+	httpx.OK(c, gin.H{"success": true, "message_id": mid})
 }
