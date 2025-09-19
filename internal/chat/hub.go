@@ -338,3 +338,43 @@ func (h *Hub) BroadcastSystemMessage(conversationID int64, content string) {
 		}
 	}
 }
+
+func (h *Hub) BroadcastToConversation(conversationID int64, payload []byte) {
+	rows, err := h.DB.Query(`SELECT user_id FROM participants WHERE conversation_id=$1`, conversationID)
+	if err != nil {
+		log.Printf("[hub] failed to fetch participants for conversation %d: %v", conversationID, err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var uid int64
+		if err := rows.Scan(&uid); err != nil {
+			log.Printf("[hub] failed to scan participant user_id: %v", err)
+			continue
+		}
+		if set, ok := h.clients[uid]; ok {
+			for client := range set {
+				select {
+				case client.Send <- payload:
+				default:
+					close(client.Send)
+					delete(set, client)
+					log.Printf("[hub] dropped slow client for user %d", uid)
+				}
+			}
+		}
+	}
+}
+
+func (h *Hub) BroadcastEditedMessage(conversationID, messageID int64, newContent string) {
+	wire := WireMessage{
+		Type:           "edited_message",
+		ConversationID: conversationID,
+		MessageID:      messageID,
+		Content:        newContent,
+	}
+	payload, _ := json.Marshal(&wire)
+	h.BroadcastToConversation(conversationID, payload)
+
+}
